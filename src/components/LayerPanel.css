@@ -1,0 +1,54 @@
+/* ===== Panel general ===== */
+.layer-panel {
+  width: 25%;
+  background: #ffffff;
+  padding: 18px 20px;
+  border-left: 1px solid #dce3e8;
+  font-family: "Inter", sans-serif;
+  box-shadow: -2px 0 6px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+}
+
+.layer-panel h2 {
+  margin-top: 0;
+  font-size: 20px;
+  font-weight: 600;
+  color: #1f4e79; /* azul profesional */
+}
+
+.layer-panel h4 {
+  margin-top: -6px;
+  font-size: 14px;
+  font-weight: 400;
+  color: #4b6475;
+  margin-bottom: 16px;
+}
+
+/* ===== Lista de capas ===== */
+.layer-item {
+  display: flex;
+  align-items: center;
+  padding: 6px 4px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.layer-item:hover {
+  background: #eef5f9;
+}
+
+/* ===== Checkbox estilizado ===== */
+.layer-checkbox {
+  width: 18px;
+  height: 18px;
+  accent-color: #1f7a8c; /* verde-azulado */
+  cursor: pointer;
+}
+
+.layer-title {
+  margin-left: 10px;
+  color: #24475a;
+  font-size: 15px;
+}
