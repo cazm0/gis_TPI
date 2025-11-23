@@ -36,3 +36,7 @@
     transform: rotate(360deg);
   }
 }
+/* Forzar que no sea colapsable */
+.ol-attribution {
+  display: none !important;
+}
