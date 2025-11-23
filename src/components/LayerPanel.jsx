@@ -1,23 +1,31 @@
 import React from "react";
-import { layersConfig } from "../layers"; // o la ruta correcta
+import { layersConfig } from "../layers";
+import "./LayerPanel.css";
 
 export default function LayerPanel({ layerManager }) {
-  if (!layerManager) return <div style={{ padding: 15 }}>Cargando capas...</div>;
+  if (!layerManager) return <div className="layer-panel">Cargando capas...</div>;
 
   return (
-    <div style={{ width: "25%", padding: 15 }}>
-      <h3>Capas</h3>
+    <div className="layer-panel">
+      <h2>SIG – TPI Grupo 1</h2>
+      <h4>Visualizador geoespacial</h4>
 
       {layersConfig.map((c) => (
-        <div key={c.id}>
+        <div
+          key={c.id}
+          className="layer-item"
+          onClick={() =>
+            layerManager.setVisible(c.id, !layerManager.getVisible(c.id))
+          }
+        >
           <input
             type="checkbox"
-            checked={!!layerManager.getVisible(c.id)}  // 👈 fuerza booleano
-            onChange={() =>
-              layerManager.setVisible(c.id, !layerManager.getVisible(c.id))
-            }
+            className="layer-checkbox"
+            checked={!!layerManager.getVisible(c.id)}
+            onChange={() => {}}
           />
-          {c.title}
+
+          <span className="layer-title">{c.title}</span>
         </div>
       ))}
     </div>
