@@ -1,0 +1,33 @@
+import React from "react";
+import "./ToolButtons.css";
+
+export default function ToolButtons({ activeTool, onChange }) {
+  const tools = [
+    { id: "measure", icon: "📏", label: "Medir", title: "Medir distancia" },
+    { id: "draw", icon: "✏️", label: "Dibujar", title: "Dibujar elemento" },
+    { id: "query", icon: "🔍", label: "Consultar", title: "Consultar información" },
+    { id: "print", icon: "🖨️", label: "Imprimir", title: "Imprimir mapa" },
+  ];
+
+  const handleToggle = (toolId) => {
+    if (!onChange) return;
+    onChange(activeTool === toolId ? null : toolId);
+  };
+
+  return (
+    <div className="tool-buttons">
+      {tools.map((tool) => (
+        <button
+          key={tool.id}
+          className={`tool-button ${activeTool === tool.id ? "active" : ""}`}
+          onClick={() => handleToggle(tool.id)}
+          title={tool.title}
+        >
+          <span className="tool-icon">{tool.icon}</span>
+          <span className="tool-label">{tool.label}</span>
+        </button>
+      ))}
+    </div>
+  );
+}
+

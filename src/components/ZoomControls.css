@@ -1,0 +1,46 @@
+.zoom-controls {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  z-index: 1000;
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.3);
+  overflow: hidden;
+  transition: box-shadow 0.2s ease;
+}
+
+.zoom-controls:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+.zoom-btn {
+  width: 40px;
+  height: 40px;
+  border: none;
+  background: white;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #5f6368;
+  transition: background-color 0.2s ease;
+  padding: 0;
+}
+
+.zoom-btn:hover {
+  background-color: #f1f3f4;
+}
+
+.zoom-btn:active {
+  background-color: #e8eaed;
+}
+
+.zoom-divider {
+  height: 1px;
+  background: #e8eaed;
+  margin: 0;
+}
+

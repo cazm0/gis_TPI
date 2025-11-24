@@ -1,0 +1,77 @@
+.map-type-control {
+  position: absolute;
+  bottom: 20px;
+  right: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  z-index: 1000;
+  flex-direction: row-reverse;
+}
+
+.map-type-toggle {
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  background: white;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.25);
+  font-size: 20px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #5f6368;
+  transition: all 0.2s ease;
+}
+
+.map-type-toggle:hover {
+  color: #1a73e8;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+}
+
+.map-type-panel {
+  display: flex;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 24px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.25);
+  backdrop-filter: blur(8px);
+  max-width: 0;
+  opacity: 0;
+  transform: scale(0.9);
+  transform-origin: bottom right;
+  transition: max-width 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
+  overflow: hidden;
+}
+
+.map-type-control.open .map-type-panel {
+  max-width: 640px;
+  opacity: 1;
+  transform: scale(1);
+}
+
+.map-type-button {
+  border: none;
+  border-radius: 20px;
+  padding: 8px 16px;
+  font-size: 13px;
+  font-weight: 500;
+  background: transparent;
+  color: #5f6368;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+}
+
+.map-type-button:hover {
+  background: #f1f3f4;
+}
+
+.map-type-button.active {
+  background: #1a73e8;
+  color: white;
+  box-shadow: 0 2px 6px rgba(26, 115, 232, 0.4);
+}
+

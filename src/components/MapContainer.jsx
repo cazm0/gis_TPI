@@ -7,12 +7,21 @@ import { defaults as defaultControls } from "ol/control";
 import BaseMap from "./BaseMap";
 import LayerManager from "./LayerManager";
 import LayerPanel from "./LayerPanel";
+import ZoomControls from "./ZoomControls";
+import ScaleBar from "./ScaleBar";
+import SearchBar from "./SearchBar";
+import ToolButtons from "./ToolButtons";
+import MapTypeControl from "./MapTypeControl";
+import MapTools from "./MapTools";
 
 export default function MapContainer() {
   const mapRef = useRef();
   const [map, setMap] = useState(null);
   const [layerManager, setLayerManager] = useState(null);
-  const [update, setUpdate] = useState(0); // <-- NUEVO
+  const [update, setUpdate] = useState(0);
+  const [baseLayer, setBaseLayer] = useState(null);
+  const [baseStyle, setBaseStyle] = useState("standard");
+  const [activeTool, setActiveTool] = useState(null);
 
   useEffect(() => {
     const view = new View({
@@ -25,15 +34,17 @@ export default function MapContainer() {
       target: mapRef.current,
       view,
       layers: [],
-      controls: defaultControls({ attribution: false }),
+      controls: defaultControls({
+        attribution: false,
+        zoom: false,
+        rotate: false,
+      }),
     });
-
-    BaseMap(mapObj);
 
     const manager = new LayerManager(mapObj);
 
     manager.onChange = () => {
-      setUpdate((u) => u + 1); // <-- Fuerza rerender
+      setUpdate((u) => u + 1);
     };
 
     setLayerManager(manager);
@@ -42,15 +53,41 @@ export default function MapContainer() {
     return () => mapObj.setTarget(null);
   }, []);
 
+  useEffect(() => {
+    if (!map) return;
+
+    if (baseLayer) {
+      map.removeLayer(baseLayer);
+    }
+
+    const newBase = BaseMap(map, baseStyle);
+    setBaseLayer(newBase);
+  }, [baseStyle, map]);
+
   return (
-    <div style={{ display: "flex" }}>
+    <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
+      <LayerPanel layerManager={layerManager} update={update} />
+      
       <div
         ref={mapRef}
-        style={{ width: "75%", height: "100vh", border: "1px solid #ccc" }}
-      />
-
-      {/* use update to rerender */}
-      <LayerPanel layerManager={layerManager} key={update} />
+        style={{ 
+          flex: 1, 
+          height: "100vh", 
+          position: "relative",
+          backgroundColor: "#e5e3df"
+        }}
+      >
+        {map && (
+          <>
+            <SearchBar />
+            <ZoomControls map={map} />
+            <ScaleBar map={map} />
+            <ToolButtons activeTool={activeTool} onChange={setActiveTool} />
+            <MapTools map={map} activeTool={activeTool} />
+            <MapTypeControl activeStyle={baseStyle} onChange={setBaseStyle} />
+          </>
+        )}
+      </div>
     </div>
   );
 }

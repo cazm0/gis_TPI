@@ -1,8 +1,9 @@
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
+test('renders SIG TPI application', () => {
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  // Verificar que el título de la aplicación se renderiza
+  const titleElement = screen.getByText(/SIG – TPI/i);
+  expect(titleElement).toBeInTheDocument();
 });
