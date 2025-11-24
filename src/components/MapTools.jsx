@@ -5,6 +5,7 @@ import { Draw } from "ol/interaction";
 import Overlay from "ol/Overlay";
 import { getLength } from "ol/sphere";
 import { Style, Stroke, Fill, Circle as CircleStyle } from "ol/style";
+import { unByKey } from "ol/Observable";
 import "./MapTools.css";
 
 export default function MapTools({ map, activeTool }) {
@@ -90,12 +91,13 @@ export default function MapTools({ map, activeTool }) {
       hintRef.current = hint;
     }
 
-    const tooltipElement = document.createElement("div");
+    let tooltipElement = document.createElement("div");
     tooltipElement.className = "measure-tooltip";
-    const tooltipOverlay = new Overlay({
+    let tooltipOverlay = new Overlay({
       element: tooltipElement,
       offset: [0, -15],
       positioning: "bottom-center",
+      stopEvent: false,
     });
     map.addOverlay(tooltipOverlay);
     tooltipRef.current = { element: tooltipElement, overlay: tooltipOverlay };
@@ -130,34 +132,131 @@ export default function MapTools({ map, activeTool }) {
       return `${length.toFixed(0)} m`;
     };
 
+    let geometryListener = null;
+
     const onChange = (event) => {
       const geom = event.target;
       const output = formatLength(geom);
-      tooltipElement.innerHTML = output;
-      tooltipOverlay.setPosition(geom.getLastCoordinate());
+      const html = document.createElement("span");
+      html.textContent = output;
+      tooltipElement.innerHTML = "";
+      tooltipElement.appendChild(html);
+
+      // El tooltip temporal debe seguir el mouse (último punto de la línea)
+      const coords = geom.getCoordinates();
+      if (coords.length > 0) {
+        // El último punto es donde está el cursor del mouse
+        const lastPoint = coords[coords.length - 1];
+        tooltipOverlay.setPosition(lastPoint);
+      }
     };
 
     draw.on("drawstart", (event) => {
       sketch = event.feature;
-      sketch.getGeometry().on("change", onChange);
+      geometryListener = sketch.getGeometry().on("change", onChange);
+      // Asegurar que el tooltip esté visible para la nueva medición
+      if (tooltipElement) {
+        tooltipElement.style.display = "";
+        tooltipElement.innerHTML = "";
+      }
     });
 
-    draw.on("drawend", () => {
-      tooltipElement.className = "measure-tooltip measure-tooltip-static";
+    draw.on("drawend", (event) => {
+      const feature = event.feature;
+      const geometry = feature.getGeometry();
+      const coords = geometry.getCoordinates();
+      
+      // Desactivar el listener de geometría para que no siga moviendo el tooltip
+      if (geometryListener) {
+        unByKey(geometryListener);
+        geometryListener = null;
+      }
+      
+      // Calcular y mostrar la distancia final
+      const finalLength = formatLength(geometry);
+      const lengthSpan = document.createElement("span");
+      lengthSpan.textContent = finalLength;
+      tooltipElement.innerHTML = "";
+      tooltipElement.appendChild(lengthSpan);
+      
+      // Posicionar el tooltip en el último punto de la medición (punto final)
+      const lastPoint = coords[coords.length - 1];
+      
+      // Asegurar que el positioning y offset estén correctos
+      tooltipOverlay.setPositioning("bottom-center");
       tooltipOverlay.setOffset([0, -7]);
+      tooltipOverlay.setPosition(lastPoint);
+      
+      tooltipElement.className = "measure-tooltip measure-tooltip-static";
+      const currentTooltipElement = tooltipElement;
+      const currentOverlay = tooltipOverlay;
+
+      const deleteButton = document.createElement("button");
+      deleteButton.className = "measure-delete";
+      deleteButton.textContent = "✕";
+      deleteButton.title = "Eliminar medición";
+      deleteButton.addEventListener("click", (e) => {
+        e.stopPropagation();
+        source.removeFeature(feature);
+        map.removeOverlay(currentOverlay);
+        currentTooltipElement.remove();
+      });
+      currentTooltipElement.appendChild(deleteButton);
+
       sketch = null;
 
       // create new tooltip for next measurement
-      const newTooltipElement = document.createElement("div");
-      newTooltipElement.className = "measure-tooltip";
-      const newOverlay = new Overlay({
-        element: newTooltipElement,
+      tooltipElement = document.createElement("div");
+      tooltipElement.className = "measure-tooltip";
+      tooltipOverlay = new Overlay({
+        element: tooltipElement,
         offset: [0, -15],
         positioning: "bottom-center",
+        stopEvent: false,
       });
-      map.addOverlay(newOverlay);
-      tooltipRef.current = { element: newTooltipElement, overlay: newOverlay };
+      map.addOverlay(tooltipOverlay);
+      tooltipRef.current = { element: tooltipElement, overlay: tooltipOverlay };
+
+      if (geometryListener) {
+        unByKey(geometryListener);
+        geometryListener = null;
+      }
     });
+
+    draw.on("drawabort", () => {
+      // Limpiar tooltip provisional cuando se cancela
+      if (tooltipRef.current && tooltipOverlay) {
+        tooltipOverlay.setPosition(undefined);
+        tooltipElement.innerHTML = "";
+        tooltipElement.style.display = "none";
+      }
+      if (geometryListener) {
+        unByKey(geometryListener);
+        geometryListener = null;
+      }
+      sketch = null;
+    });
+
+    const handleContextMenu = (e) => {
+      if (activeTool !== "measure") return;
+      e.preventDefault();
+      if (drawRef.current) {
+        draw.abortDrawing();
+      }
+    };
+
+    const handleKeyDown = (e) => {
+      if (activeTool !== "measure") return;
+      if (e.key === "Escape" || e.key === "Esc") {
+        e.preventDefault();
+        if (drawRef.current) {
+          draw.abortDrawing();
+        }
+      }
+    };
+
+    targetElement.addEventListener("contextmenu", handleContextMenu);
+    window.addEventListener("keydown", handleKeyDown);
 
     return () => {
       removeInteraction();
@@ -169,6 +268,11 @@ export default function MapTools({ map, activeTool }) {
       if (hintRef.current) {
         targetElement.removeChild(hintRef.current);
         hintRef.current = null;
+      }
+      targetElement.removeEventListener("contextmenu", handleContextMenu);
+      window.removeEventListener("keydown", handleKeyDown);
+      if (geometryListener) {
+        unByKey(geometryListener);
       }
     };
   }, [activeTool, map]);
