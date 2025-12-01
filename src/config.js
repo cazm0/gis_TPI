@@ -1,3 +1,3 @@
-export const URL_OGC = "http://localhost:8080/geoserver/gisTPI/wms";
+export const URL_OGC = "http://localhost:8081/geoserver/gisTPI/wms";
 
 
