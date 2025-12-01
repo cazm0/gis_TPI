@@ -104,11 +104,19 @@
 .layer-item {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 12px;
   border-radius: 8px;
   cursor: pointer;
   margin-bottom: 4px;
   border: 1px solid transparent;
+}
+
+.layer-item-main {
+  display: flex;
+  align-items: center;
+  flex: 1;
+  min-width: 0;
 }
 
 .layer-item:hover {
@@ -331,4 +339,44 @@
     opacity: 1;
     max-height: 1000px;
   }
+}
+
+/* ===== Capas de usuario ===== */
+.user-layer-item {
+  background: #f8f9fa;
+  border-left: 3px solid #ff6b6b;
+}
+
+.user-layer-actions {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.layer-action-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background-color 0.2s ease;
+  color: #5f6368;
+}
+
+.layer-action-btn:hover {
+  background-color: #e8eaed;
+}
+
+.download-btn:hover {
+  color: #1a73e8;
+  background-color: #e8f0fe;
+}
+
+.delete-btn:hover {
+  color: #ea4335;
+  background-color: #fce8e6;
 }

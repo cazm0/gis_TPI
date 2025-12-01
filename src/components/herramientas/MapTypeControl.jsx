@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { MAP_STYLES } from "./BaseMap";
+import { MAP_STYLES } from "../mapa/BaseMap";
 import "./MapTypeControl.css";
 
 export default function MapTypeControl({ activeStyle, onChange }) {

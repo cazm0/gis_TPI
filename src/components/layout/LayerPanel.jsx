@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { layersConfig, layerGroups, groupConfig } from "../layers";
+import { layersConfig, layerGroups, groupConfig } from "../../layers";
 import "./LayerPanel.css";
 
-export default function LayerPanel({ layerManager }) {
+export default function LayerPanel({ layerManager, update }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -16,15 +16,35 @@ export default function LayerPanel({ layerManager }) {
     }));
   };
 
+  // Obtener capas de usuario (reactivo a cambios)
+  const userLayers = useMemo(() => {
+    if (!layerManager) return [];
+    const userLayersObj = layerManager.getUserLayers();
+    return Object.keys(userLayersObj).map(layerId => {
+      const layer = userLayersObj[layerId];
+      return {
+        id: layerId,
+        title: layer.get('title') || layerId.replace('user:', ''),
+        group: 'Usuario',
+        isUserLayer: true,
+      };
+    });
+  }, [layerManager, update]); // Depender de update para reactividad
+
+  // Combinar capas normales y de usuario
+  const allLayers = useMemo(() => {
+    return [...layersConfig, ...userLayers];
+  }, [userLayers]);
+
   // Filtrar capas por búsqueda
   const filteredLayers = useMemo(() => {
-    if (!searchQuery.trim()) return layersConfig;
+    if (!searchQuery.trim()) return allLayers;
     const query = searchQuery.toLowerCase();
-    return layersConfig.filter(layer => 
+    return allLayers.filter(layer => 
       layer.title.toLowerCase().includes(query) ||
       layer.group.toLowerCase().includes(query)
     );
-  }, [searchQuery]);
+  }, [searchQuery, allLayers]);
 
   // Agrupar capas filtradas por categoría
   const groupedLayers = useMemo(() => {
@@ -41,6 +61,37 @@ export default function LayerPanel({ layerManager }) {
     }));
   }, [filteredLayers]);
 
+  // Función para descargar capa de usuario
+  const downloadUserLayer = (layerId, layerTitle) => {
+    if (!layerManager) return;
+    
+    const geoJSON = layerManager.exportUserLayerToGeoJSON(layerId);
+    if (!geoJSON) {
+      alert('Error al exportar la capa');
+      return;
+    }
+
+    const blob = new Blob([geoJSON], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `${layerTitle || layerId}.geojson`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  // Función para eliminar capa de usuario
+  const deleteUserLayer = (layerId, layerTitle) => {
+    if (!window.confirm(`¿Estás seguro de que deseas eliminar la capa "${layerTitle}"?`)) {
+      return;
+    }
+    if (layerManager) {
+      layerManager.removeUserLayer(layerId);
+    }
+  };
+
   // Expandir grupos que tienen resultados en la búsqueda
   useEffect(() => {
     if (searchQuery.trim()) {
@@ -51,6 +102,16 @@ export default function LayerPanel({ layerManager }) {
       setExpandedGroups(newExpanded);
     }
   }, [searchQuery, groupedLayers]);
+
+  // Expandir automáticamente el grupo "Usuario" si hay capas de usuario
+  useEffect(() => {
+    if (userLayers.length > 0) {
+      setExpandedGroups(prev => ({
+        ...prev,
+        'Usuario': true,
+      }));
+    }
+  }, [userLayers.length]);
 
   if (!layerManager) {
     return (
@@ -159,18 +220,50 @@ export default function LayerPanel({ layerManager }) {
                         {layers.map((c) => (
                           <div
                             key={c.id}
-                            className="layer-item"
-                            onClick={() =>
-                              layerManager.setVisible(c.id, !layerManager.getVisible(c.id))
-                            }
+                            className={`layer-item ${c.isUserLayer ? 'user-layer-item' : ''}`}
                           >
-                            <input
-                              type="checkbox"
-                              className="layer-checkbox"
-                              checked={!!layerManager.getVisible(c.id)}
-                              onChange={() => {}}
-                            />
-                            <span className="layer-title">{c.title}</span>
+                            <div
+                              className="layer-item-main"
+                              onClick={() =>
+                                layerManager.setVisible(c.id, !layerManager.getVisible(c.id))
+                              }
+                            >
+                              <input
+                                type="checkbox"
+                                className="layer-checkbox"
+                                checked={!!layerManager.getVisible(c.id)}
+                                onChange={() => {}}
+                              />
+                              <span className="layer-title">{c.title}</span>
+                            </div>
+                            {c.isUserLayer && (
+                              <div className="user-layer-actions">
+                                <button
+                                  className="layer-action-btn download-btn"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    downloadUserLayer(c.id, c.title);
+                                  }}
+                                  title="Descargar capa"
+                                >
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                    <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z" fill="currentColor"/>
+                                  </svg>
+                                </button>
+                                <button
+                                  className="layer-action-btn delete-btn"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    deleteUserLayer(c.id, c.title);
+                                  }}
+                                  title="Eliminar capa"
+                                >
+                                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                    <path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z" fill="currentColor"/>
+                                  </svg>
+                                </button>
+                              </div>
+                            )}
                           </div>
                         ))}
                       </div>

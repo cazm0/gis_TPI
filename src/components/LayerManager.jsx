@@ -1,5 +1,10 @@
 import ImageLayer from "ol/layer/Image";
 import ImageWMS from "ol/source/ImageWMS";
+import VectorLayer from "ol/layer/Vector";
+import VectorSource from "ol/source/Vector";
+import Feature from "ol/Feature";
+import { GeoJSON } from "ol/format";
+import { Style, Stroke, Fill, Circle as CircleStyle } from "ol/style";
 import { URL_OGC } from "../config";
 import { layersConfig } from "../layers";
 
@@ -7,9 +12,13 @@ export default class LayerManager {
   constructor(map) {
     this.map = map;
     this.layers = {};
+    this.userLayers = {}; // Capas de usuario (en memoria)
     this.onChange = null; // 👈 importante
     this.layerVariants = {}; // Almacena las variantes de nombres para cada capa
     this.activeLayerNames = {}; // Almacena el nombre real que funciona para cada capa
+    
+    // Cargar capas de usuario desde localStorage
+    this.loadUserLayers();
 
     layersConfig.forEach((cfg) => {
       // Extraer workspace y nombre de capa
@@ -176,18 +185,21 @@ export default class LayerManager {
   setVisible(id, visible) {
     if (this.layers[id]) {
       this.layers[id].setVisible(visible);
-
+      // ⚡ Notificar a React
+      if (this.onChange) this.onChange();
+    } else if (this.userLayers[id]) {
+      this.userLayers[id].setVisible(visible);
       // ⚡ Notificar a React
       if (this.onChange) this.onChange();
     }
   }
 
   getVisible(id) {
-    return this.layers[id]?.getVisible() || false;
+    return this.layers[id]?.getVisible() || this.userLayers[id]?.getVisible() || false;
   }
 
   /**
-   * Obtiene todas las capas visibles
+   * Obtiene todas las capas visibles (incluyendo de usuario)
    */
   getVisibleLayers() {
     const visible = [];
@@ -195,6 +207,12 @@ export default class LayerManager {
       if (this.getVisible(id)) {
         // Retornar el nombre real de la capa que está funcionando
         visible.push(this.activeLayerNames[id] || id);
+      }
+    });
+    // Agregar capas de usuario visibles
+    Object.keys(this.userLayers).forEach((id) => {
+      if (this.getVisible(id)) {
+        visible.push(id);
       }
     });
     return visible;
@@ -205,5 +223,220 @@ export default class LayerManager {
    */
   getActiveLayerName(id) {
     return this.activeLayerNames[id] || id;
+  }
+
+  /**
+   * Cargar capas de usuario desde localStorage
+   */
+  loadUserLayers() {
+    try {
+      const stored = localStorage.getItem('userLayers');
+      if (stored) {
+        const userLayersData = JSON.parse(stored);
+        Object.keys(userLayersData).forEach(layerId => {
+          const layerData = userLayersData[layerId];
+          const layer = this.createUserLayer(
+            layerId, 
+            layerData.title, 
+            layerData.geometryType, 
+            layerData.features,
+            layerData.attributes || [] // Cargar atributos si existen
+          );
+          // Las capas cargadas desde localStorage se crean visibles por defecto
+          if (layer) {
+            layer.setVisible(true);
+          }
+        });
+      }
+    } catch (error) {
+      console.error('Error cargando capas de usuario:', error);
+    }
+  }
+
+  /**
+   * Guardar capas de usuario en localStorage
+   */
+  saveUserLayers() {
+    try {
+      const userLayersData = {};
+      Object.keys(this.userLayers).forEach(layerId => {
+        const layer = this.userLayers[layerId];
+        const source = layer.getSource();
+        const features = source.getFeatures();
+        const format = new GeoJSON();
+        const featuresJSON = format.writeFeatures(features, {
+          featureProjection: "EPSG:3857",
+          dataProjection: "EPSG:4326",
+        });
+        
+        const parsedFeatures = JSON.parse(featuresJSON);
+        // writeFeatures devuelve un FeatureCollection, extraer el array de features
+        const featuresArray = parsedFeatures.features || (Array.isArray(parsedFeatures) ? parsedFeatures : []);
+        
+        userLayersData[layerId] = {
+          title: layer.get('title') || layerId.replace('user:', ''),
+          geometryType: layer.get('geometryType') || 'Point',
+          attributes: layer.get('attributes') || [], // Guardar esquema de atributos
+          features: featuresArray,
+        };
+      });
+      localStorage.setItem('userLayers', JSON.stringify(userLayersData));
+      console.log('Capas de usuario guardadas:', userLayersData);
+    } catch (error) {
+      console.error('Error guardando capas de usuario:', error);
+    }
+  }
+
+  /**
+   * Crear una nueva capa de usuario
+   */
+  createUserLayer(layerId, title, geometryType, featuresData = [], attributes = []) {
+    // Si la capa ya existe, no crear otra
+    if (this.userLayers[layerId]) {
+      return this.userLayers[layerId];
+    }
+
+    const source = new VectorSource();
+    const format = new GeoJSON();
+
+    // Cargar features desde datos JSON si existen
+    if (featuresData && featuresData.length > 0) {
+      try {
+        // Asegurar que featuresData sea un array de features
+        const featureCollection = Array.isArray(featuresData) 
+          ? { type: 'FeatureCollection', features: featuresData }
+          : featuresData;
+        
+        const features = format.readFeatures(
+          featureCollection,
+          { featureProjection: "EPSG:3857", dataProjection: "EPSG:4326" }
+        );
+        source.addFeatures(features);
+        console.log(`Cargadas ${features.length} features en capa ${layerId}`);
+      } catch (error) {
+        console.error(`Error cargando features para ${layerId}:`, error);
+      }
+    }
+
+    // Determinar estilo según tipo de geometría
+    let style;
+    if (geometryType === 'Point') {
+      style = new Style({
+        image: new CircleStyle({
+          radius: 6,
+          fill: new Fill({ color: '#ff6b6b' }),
+          stroke: new Stroke({ color: '#fff', width: 2 }),
+        }),
+      });
+    } else if (geometryType === 'LineString') {
+      style = new Style({
+        stroke: new Stroke({
+          color: '#ff6b6b',
+          width: 3,
+        }),
+      });
+    } else {
+      style = new Style({
+        stroke: new Stroke({
+          color: '#ff6b6b',
+          width: 2,
+        }),
+        fill: new Fill({
+          color: 'rgba(255, 107, 107, 0.3)',
+        }),
+      });
+    }
+
+    const layer = new VectorLayer({
+      source,
+      style,
+      visible: false,
+    });
+
+    // Guardar metadata en la capa
+    layer.set('title', title);
+    layer.set('geometryType', geometryType);
+    layer.set('isUserLayer', true);
+    layer.set('attributes', attributes); // Guardar esquema de atributos
+
+    this.map.addLayer(layer);
+    this.userLayers[layerId] = layer;
+
+    // Hacer la capa visible por defecto
+    layer.setVisible(true);
+
+    // Guardar en localStorage
+    this.saveUserLayers();
+
+    // Notificar cambio
+    if (this.onChange) this.onChange();
+
+    return layer;
+  }
+
+  /**
+   * Agregar feature a una capa de usuario
+   */
+  addFeatureToUserLayer(layerId, feature) {
+    if (!this.userLayers[layerId]) {
+      console.error(`Capa de usuario ${layerId} no existe`);
+      return;
+    }
+
+    const source = this.userLayers[layerId].getSource();
+    source.addFeature(feature);
+
+    // Guardar en localStorage
+    this.saveUserLayers();
+
+    // Notificar cambio
+    if (this.onChange) this.onChange();
+  }
+
+  /**
+   * Obtener todas las capas (incluyendo de usuario)
+   */
+  getAllLayers() {
+    return { ...this.layers, ...this.userLayers };
+  }
+
+  /**
+   * Obtener solo capas de usuario
+   */
+  getUserLayers() {
+    return this.userLayers;
+  }
+
+  /**
+   * Eliminar capa de usuario
+   */
+  removeUserLayer(layerId) {
+    if (this.userLayers[layerId]) {
+      this.map.removeLayer(this.userLayers[layerId]);
+      delete this.userLayers[layerId];
+      this.saveUserLayers();
+      if (this.onChange) this.onChange();
+    }
+  }
+
+  /**
+   * Exportar capa de usuario a GeoJSON
+   */
+  exportUserLayerToGeoJSON(layerId) {
+    if (!this.userLayers[layerId]) {
+      return null;
+    }
+
+    const layer = this.userLayers[layerId];
+    const source = layer.getSource();
+    const features = source.getFeatures();
+    const format = new GeoJSON();
+    
+    const geoJSON = format.writeFeatures(features, {
+      featureProjection: "EPSG:3857",
+      dataProjection: "EPSG:4326",
+    });
+
+    return geoJSON;
   }
 }

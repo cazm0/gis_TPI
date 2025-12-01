@@ -1,4 +1,4 @@
-import MapContainer from "./components/MapContainer";
+import MapContainer from "./components/mapa/MapContainer";
 
 function App() {
   return <MapContainer />;

@@ -7,7 +7,7 @@ import { GeoJSON } from "ol/format";
 import { transform, fromLonLat, toLonLat } from "ol/proj";
 import { Point, Polygon } from "ol/geom";
 // Removido getDistance - usamos distancia euclidiana en coordenadas del mapa
-import { URL_WFS } from "../config";
+import { URL_WFS } from "../../config";
 import "./QueryTool.css";
 
 export default function QueryTool({ map, activeTool, layerManager }) {
@@ -80,6 +80,52 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     };
   }, [map]);
 
+  // Consultar features de capa de usuario (en memoria)
+  const queryUserLayer = (layerId, coordinate, extent, isPointQuery) => {
+    const userLayers = layerManager.getUserLayers();
+    const userLayer = userLayers[layerId];
+    
+    if (!userLayer || !userLayer.getVisible()) {
+      return [];
+    }
+
+    const source = userLayer.getSource();
+    const features = source.getFeatures();
+    const foundFeatures = [];
+
+    features.forEach((feature) => {
+      const geometry = feature.getGeometry();
+      if (!geometry) return;
+
+      let isInRange = false;
+
+      if (isPointQuery) {
+        // Para consulta por punto: verificar si está dentro del radio
+        const closestPoint = geometry.getClosestPoint(coordinate);
+        const dx = coordinate[0] - closestPoint[0];
+        const dy = coordinate[1] - closestPoint[1];
+        const distance = Math.sqrt(dx * dx + dy * dy);
+        
+        // Radio de búsqueda en coordenadas del mapa (aproximadamente 50 píxeles)
+        const view = map.getView();
+        const resolution = view.getResolution();
+        const searchRadiusPixels = 50;
+        const searchRadius = resolution * searchRadiusPixels;
+        
+        isInRange = distance <= searchRadius;
+      } else {
+        // Para consulta por rectángulo: verificar si intersecta
+        isInRange = geometry.intersectsExtent(extent);
+      }
+
+      if (isInRange) {
+        foundFeatures.push(feature);
+      }
+    });
+
+    return foundFeatures;
+  };
+
   // Consulta WFS por punto (objeto más cercano)
   const queryByPoint = async (coordinate) => {
     const visibleLayers = layerManager.getVisibleLayers();
@@ -109,20 +155,77 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     // Convertir metros a grados (aproximación: 1 grado ≈ 111km)
     const searchRadiusDegrees = searchRadiusMeters / 111000;
     
+    // Separar capas de usuario de capas de GeoServer
+    const userLayerIds = [];
+    const geoserverLayers = [];
+    
+    visibleLayers.forEach(layerName => {
+      if (layerName.startsWith('user:')) {
+        userLayerIds.push(layerName);
+      } else {
+        geoserverLayers.push(layerName);
+      }
+    });
+    
     // Buscar el objeto más cercano en todas las capas
     const allFeatures = [];
     const layerResults = {};
 
     try {
-      // Consultar todas las capas con un bbox alrededor del punto basado en la resolución
-      const bbox = [
-        lonLat[0] - searchRadiusDegrees,
-        lonLat[1] - searchRadiusDegrees,
-        lonLat[0] + searchRadiusDegrees,
-        lonLat[1] + searchRadiusDegrees,
-      ].join(",");
+      // Consultar capas de usuario (en memoria)
+      userLayerIds.forEach(layerId => {
+        const foundFeatures = queryUserLayer(layerId, coordinate, null, true);
+        if (foundFeatures.length > 0) {
+          // Encontrar la feature más cercana
+          let closestFeature = null;
+          let minDistance = Infinity;
 
-      const queries = visibleLayers.map(async (layerName) => {
+          foundFeatures.forEach((feature) => {
+            const geometry = feature.getGeometry();
+            const closestPoint = geometry.getClosestPoint(coordinate);
+            const dx = coordinate[0] - closestPoint[0];
+            const dy = coordinate[1] - closestPoint[1];
+            const distance = Math.sqrt(dx * dx + dy * dy);
+
+            if (distance < minDistance) {
+              minDistance = distance;
+              closestFeature = feature;
+            }
+          });
+
+          if (closestFeature) {
+            const displayName = layerId.replace('user:', '');
+            const resolution = map.getView().getResolution();
+            const latRad = (lonLat[1] * Math.PI) / 180;
+            const metersPerUnit = Math.cos(latRad) * 111320;
+            const distanceInMeters = minDistance * metersPerUnit;
+            
+            allFeatures.push({
+              feature: closestFeature,
+              layerName: layerId,
+              distance: distanceInMeters / 1000,
+              distancePixels: minDistance,
+              properties: closestFeature.getProperties(),
+            });
+            layerResults[displayName] = 1;
+          } else {
+            layerResults[layerId.replace('user:', '')] = 0;
+          }
+        } else {
+          layerResults[layerId.replace('user:', '')] = 0;
+        }
+      });
+
+      // Consultar capas de GeoServer con WFS
+      if (geoserverLayers.length > 0) {
+        const bbox = [
+          lonLat[0] - searchRadiusDegrees,
+          lonLat[1] - searchRadiusDegrees,
+          lonLat[0] + searchRadiusDegrees,
+          lonLat[1] + searchRadiusDegrees,
+        ].join(",");
+
+        const queries = geoserverLayers.map(async (layerName) => {
         try {
           // Construir URL de WFS GetFeature con parámetros codificados
           const params = new URLSearchParams({
@@ -224,13 +327,14 @@ export default function QueryTool({ map, activeTool, layerManager }) {
           } else {
             layerResults[layerName] = 0;
           }
-        } catch (error) {
-          console.error(`Error consultando capa ${layerName}:`, error);
-          layerResults[layerName] = `Error: ${error.message}`;
-        }
-      });
+          } catch (error) {
+            console.error(`Error consultando capa ${layerName}:`, error);
+            layerResults[layerName] = `Error: ${error.message}`;
+          }
+        });
 
-      await Promise.all(queries);
+        await Promise.all(queries);
+      }
 
       // Ordenar por distancia y tomar el más cercano de cada capa
       allFeatures.sort((a, b) => a.distance - b.distance);
@@ -283,25 +387,58 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     const maxCoord = toLonLat([extent[2], extent[3]], "EPSG:3857");
     const bbox = `${minCoord[0]},${minCoord[1]},${maxCoord[0]},${maxCoord[1]}`;
 
+    // Separar capas de usuario de capas de GeoServer
+    const userLayerIds = [];
+    const geoserverLayers = [];
+    
+    visibleLayers.forEach(layerName => {
+      if (layerName.startsWith('user:')) {
+        userLayerIds.push(layerName);
+      } else {
+        geoserverLayers.push(layerName);
+      }
+    });
+
     const allFeatures = [];
     const layerResults = {};
 
     try {
-      const queries = visibleLayers.map(async (layerName) => {
-        try {
-          // Construir URL de WFS GetFeature con parámetros codificados
-          const params = new URLSearchParams({
-            service: 'WFS',
-            version: '1.1.0',
-            request: 'GetFeature',
-            typeName: layerName,
-            outputFormat: 'application/json',
-            bbox: `${bbox},EPSG:4326`,
-            // Sin límite de maxFeatures para obtener todos los elementos
+      // Consultar capas de usuario (en memoria)
+      // Convertir extent a coordenadas del mapa (EPSG:3857) para la intersección
+      userLayerIds.forEach(layerId => {
+        const foundFeatures = queryUserLayer(layerId, null, extent, false);
+        if (foundFeatures.length > 0) {
+          const displayName = layerId.replace('user:', '');
+          foundFeatures.forEach(feature => {
+            allFeatures.push({
+              feature,
+              layerName: layerId,
+              properties: feature.getProperties(),
+            });
           });
-          
-          const wfsUrl = `${URL_WFS}?${params.toString()}`;
-          console.log('Consultando WFS (rectángulo):', wfsUrl);
+          layerResults[displayName] = foundFeatures.length;
+        } else {
+          layerResults[layerId.replace('user:', '')] = 0;
+        }
+      });
+
+      // Consultar capas de GeoServer con WFS
+      if (geoserverLayers.length > 0) {
+        const queries = geoserverLayers.map(async (layerName) => {
+          try {
+            // Construir URL de WFS GetFeature con parámetros codificados
+            const params = new URLSearchParams({
+              service: 'WFS',
+              version: '1.1.0',
+              request: 'GetFeature',
+              typeName: layerName,
+              outputFormat: 'application/json',
+              bbox: `${bbox},EPSG:4326`,
+              // Sin límite de maxFeatures para obtener todos los elementos
+            });
+            
+            const wfsUrl = `${URL_WFS}?${params.toString()}`;
+            console.log('Consultando WFS (rectángulo):', wfsUrl);
 
           const response = await fetch(wfsUrl);
           
@@ -364,13 +501,14 @@ export default function QueryTool({ map, activeTool, layerManager }) {
           } else {
             layerResults[layerName] = 0;
           }
-        } catch (error) {
-          console.error(`Error consultando capa ${layerName}:`, error);
-          layerResults[layerName] = `Error: ${error.message}`;
-        }
-      });
+          } catch (error) {
+            console.error(`Error consultando capa ${layerName}:`, error);
+            layerResults[layerName] = `Error: ${error.message}`;
+          }
+        });
 
-      await Promise.all(queries);
+        await Promise.all(queries);
+      }
 
       // Mostrar features en el mapa
       if (highlightLayerRef.current && allFeatures.length > 0) {

@@ -87,6 +87,7 @@ export const groupConfig = {
   "Territorio": "🗺️",
   "Suelos": "🌍",
   "Vegetación": "🌳",
+  "Usuario": "👤",
 };
 
 // Obtener grupos únicos

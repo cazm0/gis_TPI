@@ -5,15 +5,16 @@ import { fromLonLat } from "ol/proj";
 import { defaults as defaultControls } from "ol/control";
 
 import BaseMap from "./BaseMap";
-import LayerManager from "./LayerManager";
-import LayerPanel from "./LayerPanel";
+import LayerManager from "../LayerManager";
+import LayerPanel from "../layout/LayerPanel";
 import ZoomControls from "./ZoomControls";
 import ScaleBar from "./ScaleBar";
-import SearchBar from "./SearchBar";
-import ToolButtons from "./ToolButtons";
-import MapTypeControl from "./MapTypeControl";
-import MapTools from "./MapTools";
-import QueryTool from "./QueryTool";
+import SearchBar from "../layout/SearchBar";
+import ToolButtons from "../herramientas/ToolButtons";
+import MapTypeControl from "../herramientas/MapTypeControl";
+import MapTools from "../herramientas/MapTools";
+import QueryTool from "../herramientas/QueryTool";
+import DrawTool from "../herramientas/DrawTool";
 
 export default function MapContainer() {
   const mapRef = useRef();
@@ -86,6 +87,7 @@ export default function MapContainer() {
             <ToolButtons activeTool={activeTool} onChange={setActiveTool} />
             <MapTools map={map} activeTool={activeTool} />
             <QueryTool map={map} activeTool={activeTool} layerManager={layerManager} />
+            <DrawTool map={map} activeTool={activeTool} layerManager={layerManager} onToolChange={setActiveTool} />
             <MapTypeControl activeStyle={baseStyle} onChange={setBaseStyle} />
           </>
         )}
