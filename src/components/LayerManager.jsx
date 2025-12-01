@@ -59,18 +59,21 @@ export default class LayerManager {
       // Crear la capa con el nombre original primero
       const initialLayerId = this.layerVariants[cfg.id][0];
       
+      const source = new ImageWMS({
+        url: URL_OGC,
+        params: {
+          LAYERS: initialLayerId,
+          VERSION: "1.1.0",
+          SRS: "EPSG:4326",
+          FORMAT: "image/png",
+        },
+        serverType: "geoserver",
+      });
+
+
       const layer = new ImageLayer({
         visible: false,
-        source: new ImageWMS({
-          url: URL_OGC,
-          params: {
-            LAYERS: initialLayerId,
-            VERSION: "1.1.0",
-            SRS: "EPSG:4326",
-            FORMAT: "image/png",
-          },
-          serverType: "geoserver",
-        }),
+        source: source,
       });
 
       // Almacenar el nombre activo inicial
@@ -79,8 +82,8 @@ export default class LayerManager {
       this.variantIndex[cfg.id] = 0;
 
       // Escuchar errores en el source para intentar variantes automáticamente
-      const source = layer.getSource();
-      source.on('imageloaderror', () => {
+      source.on('imageloaderror', (error) => {
+        // Intentar siguiente variante solo si aún hay variantes disponibles
         this.tryNextVariant(cfg.id, layer);
       });
 
@@ -181,5 +184,26 @@ export default class LayerManager {
 
   getVisible(id) {
     return this.layers[id]?.getVisible() || false;
+  }
+
+  /**
+   * Obtiene todas las capas visibles
+   */
+  getVisibleLayers() {
+    const visible = [];
+    Object.keys(this.layers).forEach((id) => {
+      if (this.getVisible(id)) {
+        // Retornar el nombre real de la capa que está funcionando
+        visible.push(this.activeLayerNames[id] || id);
+      }
+    });
+    return visible;
+  }
+
+  /**
+   * Obtiene el nombre real de la capa (con variantes aplicadas)
+   */
+  getActiveLayerName(id) {
+    return this.activeLayerNames[id] || id;
   }
 }

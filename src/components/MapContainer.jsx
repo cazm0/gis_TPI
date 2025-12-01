@@ -13,6 +13,7 @@ import SearchBar from "./SearchBar";
 import ToolButtons from "./ToolButtons";
 import MapTypeControl from "./MapTypeControl";
 import MapTools from "./MapTools";
+import QueryTool from "./QueryTool";
 
 export default function MapContainer() {
   const mapRef = useRef();
@@ -84,6 +85,7 @@ export default function MapContainer() {
             <ScaleBar map={map} />
             <ToolButtons activeTool={activeTool} onChange={setActiveTool} />
             <MapTools map={map} activeTool={activeTool} />
+            <QueryTool map={map} activeTool={activeTool} layerManager={layerManager} />
             <MapTypeControl activeStyle={baseStyle} onChange={setBaseStyle} />
           </>
         )}
