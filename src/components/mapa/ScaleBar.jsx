@@ -1,6 +1,18 @@
+/**
+ * ScaleBar - Barra de escala gráfica
+ * 
+ * Muestra una barra de escala que representa una distancia real en el mapa
+ * Se actualiza automáticamente cuando cambia el zoom o se mueve el mapa
+ * Calcula valores "bonitos" (1, 2, 5, 10, 20, 50, etc.) para mostrar
+ */
+
 import React, { useState, useEffect } from "react";
 import "./ScaleBar.css";
 
+/**
+ * Componente ScaleBar
+ * @param {ol.Map} map - Instancia del mapa de OpenLayers
+ */
 export default function ScaleBar({ map }) {
   const [scaleInfo, setScaleInfo] = useState({ distance: "", width: 100 });
 

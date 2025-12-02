@@ -1,7 +1,23 @@
+/**
+ * ZoomControls - Controles de zoom y pantalla completa
+ * 
+ * Proporciona botones para:
+ * - Acercar (zoom in)
+ * - Alejar (zoom out)
+ * - Pantalla completa (fullscreen)
+ */
+
 import React from "react";
 import "./ZoomControls.css";
 
+/**
+ * Componente ZoomControls
+ * @param {ol.Map} map - Instancia del mapa de OpenLayers
+ */
 export default function ZoomControls({ map }) {
+  /**
+   * Acerca el mapa en un nivel de zoom
+   */
   const handleZoomIn = () => {
     if (map) {
       const view = map.getView();
@@ -10,6 +26,9 @@ export default function ZoomControls({ map }) {
     }
   };
 
+  /**
+   * Aleja el mapa en un nivel de zoom
+   */
   const handleZoomOut = () => {
     if (map) {
       const view = map.getView();
@@ -18,6 +37,9 @@ export default function ZoomControls({ map }) {
     }
   };
 
+  /**
+   * Alterna el modo de pantalla completa
+   */
   const handleFullScreen = () => {
     if (!document.fullscreenElement) {
       document.documentElement.requestFullscreen();

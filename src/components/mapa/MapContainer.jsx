@@ -1,3 +1,15 @@
+/**
+ * MapContainer - Contenedor principal del mapa
+ * 
+ * Componente raíz que:
+ * - Inicializa el mapa de OpenLayers
+ * - Crea el LayerManager
+ * - Integra todos los componentes (panel de capas, herramientas, controles)
+ * - Maneja el estado de las herramientas activas
+ * 
+ * Es el componente principal que orquesta toda la aplicación GIS
+ */
+
 import React, { useRef, useEffect, useState } from "react";
 import Map from "ol/Map";
 import View from "ol/View";
@@ -18,6 +30,10 @@ import MeasureTool from "../herramientas/MeasureTool";
 import PrintTool from "../herramientas/PrintTool";
 import ActiveLayersLegend from "../layout/ActiveLayersLegend";
 
+/**
+ * Componente MapContainer
+ * Componente principal que contiene todo el mapa y sus controles
+ */
 export default function MapContainer() {
   const mapRef = useRef();
   const [map, setMap] = useState(null);
