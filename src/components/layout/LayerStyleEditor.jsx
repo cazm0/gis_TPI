@@ -1,10 +1,12 @@
 import React, { useState, useEffect } from "react";
+import Modal from "../common/Modal";
 import "./LayerStyleEditor.css";
 
 export default function LayerStyleEditor({ layerId, layerName, isUserLayer, layerManager, onClose }) {
   const [color, setColor] = useState("#ff6b6b");
   const [opacity, setOpacity] = useState(1);
   const [isLoading, setIsLoading] = useState(false);
+  const [modal, setModal] = useState({ isOpen: false, message: "", type: "info", title: "" });
 
   useEffect(() => {
     if (!layerManager) return;
@@ -66,7 +68,7 @@ export default function LayerStyleEditor({ layerId, layerName, isUserLayer, laye
       onClose();
     } catch (error) {
       console.error("Error aplicando estilo:", error);
-      alert("Error al aplicar el estilo");
+      setModal({ isOpen: true, message: "Error al aplicar el estilo", type: "error", title: "Error" });
     } finally {
       setIsLoading(false);
     }
@@ -149,6 +151,14 @@ export default function LayerStyleEditor({ layerId, layerName, isUserLayer, laye
           </button>
         </div>
       </div>
+
+      <Modal
+        isOpen={modal.isOpen}
+        onClose={() => setModal({ ...modal, isOpen: false })}
+        title={modal.title}
+        message={modal.message}
+        type={modal.type}
+      />
     </div>
   );
 }

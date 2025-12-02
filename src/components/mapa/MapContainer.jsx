@@ -12,9 +12,9 @@ import ScaleBar from "./ScaleBar";
 import SearchBar from "../layout/SearchBar";
 import ToolButtons from "../herramientas/ToolButtons";
 import MapTypeControl from "../herramientas/MapTypeControl";
-import MapTools from "../herramientas/MapTools";
 import QueryTool from "../herramientas/QueryTool";
 import DrawTool from "../herramientas/DrawTool";
+import MeasureTool from "../herramientas/MeasureTool";
 import PrintTool from "../herramientas/PrintTool";
 import ActiveLayersLegend from "../layout/ActiveLayersLegend";
 
@@ -27,6 +27,8 @@ export default function MapContainer() {
   const [baseStyle, setBaseStyle] = useState("standard");
   const [activeTool, setActiveTool] = useState(null);
   const [drawGeometryType, setDrawGeometryType] = useState("Point");
+  const [measureType, setMeasureType] = useState("length");
+  const measureToolRef = useRef(null);
 
   useEffect(() => {
     const view = new View({
@@ -85,7 +87,12 @@ export default function MapContainer() {
       >
         {map && (
           <>
-            <SearchBar />
+            <SearchBar 
+              map={map} 
+              activeTool={activeTool}
+              measureType={measureType}
+              measureToolRef={measureToolRef}
+            />
             <ZoomControls map={map} />
             <ScaleBar map={map} />
             <QueryTool map={map} activeTool={activeTool} layerManager={layerManager} />
@@ -96,6 +103,13 @@ export default function MapContainer() {
               onToolChange={setActiveTool}
               geometryType={drawGeometryType}
               onGeometryTypeChange={setDrawGeometryType}
+            />
+            <MeasureTool 
+              ref={measureToolRef}
+              map={map} 
+              activeTool={activeTool}
+              measureType={measureType}
+              onMeasureTypeChange={setMeasureType}
             />
             <ToolButtons 
               activeTool={activeTool} 
@@ -122,9 +136,22 @@ export default function MapContainer() {
                     </div>
                   </div>
                 ) : null,
+                measure: activeTool === "measure" ? (
+                  <div className="measure-tool-controls-inline">
+                    <div className="measure-type-selector">
+                      <label>Tipo de medición:</label>
+                      <select
+                        value={measureType}
+                        onChange={(e) => setMeasureType(e.target.value)}
+                      >
+                        <option value="length">Longitud</option>
+                        <option value="area">Área</option>
+                      </select>
+                    </div>
+                  </div>
+                ) : null,
               }}
             />
-            <MapTools map={map} activeTool={activeTool} />
             <PrintTool map={map} layerManager={layerManager} activeTool={activeTool} />
             <ActiveLayersLegend layerManager={layerManager} update={update} />
             <MapTypeControl activeStyle={baseStyle} onChange={setBaseStyle} />

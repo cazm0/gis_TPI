@@ -14,6 +14,7 @@ import "./QueryTool.css";
 export default function QueryTool({ map, activeTool, layerManager }) {
   const drawRef = useRef(null);
   const highlightLayerRef = useRef(null);
+  const selectedFeatureLayerRef = useRef(null);
   const drawLayerRef = useRef(null);
   const [queryResults, setQueryResults] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -90,6 +91,35 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     map.addLayer(highlightLayer);
     highlightLayerRef.current = highlightLayer;
 
+    // Capa para resaltar la feature seleccionada (con estilo más destacado)
+    const selectedSource = new VectorSource();
+    const selectedLayer = new VectorLayer({
+      source: selectedSource,
+      style: new Style({
+        stroke: new Stroke({
+          color: "#1a73e8",
+          width: 5,
+        }),
+        fill: new Fill({
+          color: "rgba(26, 115, 232, 0.3)",
+        }),
+        image: new CircleStyle({
+          radius: 12,
+          fill: new Fill({
+            color: "#1a73e8",
+          }),
+          stroke: new Stroke({
+            color: "#fff",
+            width: 3,
+          }),
+        }),
+      }),
+    });
+
+    selectedLayer.setZIndex(101); // Por encima de la capa de highlight normal
+    map.addLayer(selectedLayer);
+    selectedFeatureLayerRef.current = selectedLayer;
+
     // Capa para dibujar el rectángulo de consulta
     const drawSource = new VectorSource();
     const drawLayer = new VectorLayer({
@@ -112,8 +142,10 @@ export default function QueryTool({ map, activeTool, layerManager }) {
 
     return () => {
       map.removeLayer(highlightLayer);
+      map.removeLayer(selectedLayer);
       map.removeLayer(drawLayer);
       highlightLayerRef.current = null;
+      selectedFeatureLayerRef.current = null;
       drawLayerRef.current = null;
     };
   }, [map]);
@@ -844,8 +876,12 @@ export default function QueryTool({ map, activeTool, layerManager }) {
               onClick={() => {
                 setQueryResults(null);
                 setSelectedFeature(null);
+                // Limpiar todas las features resaltadas
                 if (highlightLayerRef.current) {
                   highlightLayerRef.current.getSource().clear();
+                }
+                if (selectedFeatureLayerRef.current) {
+                  selectedFeatureLayerRef.current.getSource().clear();
                 }
               }}
             >
@@ -869,12 +905,32 @@ export default function QueryTool({ map, activeTool, layerManager }) {
                           : ""
                       }`}
                       onClick={() => {
-                        // No limpiar el source, mantener todas las features resaltadas
-                        // Solo actualizar la feature seleccionada para mostrar detalles
-                        setSelectedFeature({
+                        // Actualizar la feature seleccionada y resaltarla en el mapa
+                        const newSelected = {
                           ...item,
                           geometry: item.feature.getGeometry().getType(),
-                        });
+                        };
+                        setSelectedFeature(newSelected);
+                        
+                        // Resaltar la feature seleccionada en el mapa
+                        if (selectedFeatureLayerRef.current) {
+                          const source = selectedFeatureLayerRef.current.getSource();
+                          source.clear();
+                          // Clonar la feature para evitar problemas de referencia
+                          const clonedFeature = item.feature.clone();
+                          source.addFeature(clonedFeature);
+                          
+                          // Centrar el mapa en la feature seleccionada
+                          const geometry = item.feature.getGeometry();
+                          if (geometry) {
+                            const extent = geometry.getExtent();
+                            map.getView().fit(extent, {
+                              padding: [50, 50, 50, 50],
+                              duration: 500,
+                              maxZoom: 18,
+                            });
+                          }
+                        }
                       }}
                     >
                       <div className="query-feature-header">

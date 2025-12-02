@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect } from "react";
-import { layersConfig, layerGroups, groupConfig } from "../../layers";
+import { layersConfig, groupConfig } from "../../layers";
+import Modal from "../common/Modal";
 import "./LayerPanel.css";
 
 export default function LayerPanel({ layerManager, update }) {
@@ -7,6 +8,7 @@ export default function LayerPanel({ layerManager, update }) {
   const [isClosing, setIsClosing] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [expandedGroups, setExpandedGroups] = useState({});
+  const [modal, setModal] = useState({ isOpen: false, message: "", type: "info", title: "" });
 
   // Toggle grupo expandido/colapsado
   const toggleGroup = (group) => {
@@ -29,6 +31,7 @@ export default function LayerPanel({ layerManager, update }) {
         isUserLayer: true,
       };
     });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layerManager, update]); // Depender de update para reactividad
 
   // Combinar capas normales y de usuario
@@ -67,7 +70,7 @@ export default function LayerPanel({ layerManager, update }) {
     
     const geoJSON = layerManager.exportUserLayerToGeoJSON(layerId);
     if (!geoJSON) {
-      alert('Error al exportar la capa');
+      setModal({ isOpen: true, message: 'Error al exportar la capa', type: "error", title: "Error" });
       return;
     }
 
@@ -284,6 +287,14 @@ export default function LayerPanel({ layerManager, update }) {
           </button>
         </div>
       )}
+
+      <Modal
+        isOpen={modal.isOpen}
+        onClose={() => setModal({ ...modal, isOpen: false })}
+        title={modal.title}
+        message={modal.message}
+        type={modal.type}
+      />
     </div>
   );
 }

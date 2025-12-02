@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
+import Modal from "../common/Modal";
 import "./PrintTool.css";
 
 export default function PrintTool({ map, layerManager, activeTool }) {
@@ -13,6 +14,7 @@ export default function PrintTool({ map, layerManager, activeTool }) {
     includeTitle: true,
     title: "Mapa GIS TPI",
   });
+  const [modal, setModal] = useState({ isOpen: false, message: "", type: "info", title: "" });
 
 
   const getMapImage = async () => {
@@ -27,7 +29,7 @@ export default function PrintTool({ map, layerManager, activeTool }) {
 
     // Ocultar controles durante la captura
     const controlsToHide = mapViewport.parentElement.querySelectorAll(
-      '.ol-control, .tool-buttons, .zoom-controls, .search-bar, .map-type-control'
+      '.ol-control, .tool-buttons, .zoom-controls, .search-bar-container, .map-type-control, .measure-hint, .measure-finish-button-container'
     );
     const originalStyles = [];
     controlsToHide.forEach(control => {
@@ -39,14 +41,28 @@ export default function PrintTool({ map, layerManager, activeTool }) {
     });
 
     try {
+      // Asegurar que el viewport sea visible
+      mapViewport.style.visibility = 'visible';
+      mapViewport.style.opacity = '1';
+      
       // Esperar un momento para asegurar que el mapa esté completamente renderizado
-      await new Promise(resolve => setTimeout(resolve, 500));
+      await new Promise(resolve => setTimeout(resolve, 300));
 
-      // Forzar un render completo del mapa antes de capturar
+      // Forzar múltiples renders para asegurar que todo esté cargado
       map.renderSync();
+      await new Promise(resolve => setTimeout(resolve, 200));
+      map.renderSync();
+      await new Promise(resolve => setTimeout(resolve, 200));
+
+      // Verificar que el viewport tenga dimensiones válidas
+      const viewportWidth = mapViewport.offsetWidth || mapViewport.clientWidth;
+      const viewportHeight = mapViewport.offsetHeight || mapViewport.clientHeight;
+      
+      if (viewportWidth === 0 || viewportHeight === 0) {
+        throw new Error("El viewport del mapa no tiene dimensiones válidas");
+      }
 
       // Capturar el mapa con html2canvas
-      // Configuraciones optimizadas para reducir operaciones de lectura
       const canvas = await html2canvas(mapViewport, {
         scale: 2, // Alta resolución
         useCORS: true,
@@ -54,23 +70,32 @@ export default function PrintTool({ map, layerManager, activeTool }) {
         backgroundColor: "#e5e3df", // Color de fondo del mapa
         removeContainer: false,
         allowTaint: false,
-        imageTimeout: 0,
+        imageTimeout: 30000, // 30 segundos de timeout
+        width: viewportWidth,
+        height: viewportHeight,
         // Optimizaciones para reducir operaciones getImageData
-        onclone: (clonedDoc) => {
+        onclone: (clonedDoc, element) => {
+          // Asegurar que el elemento clonado sea visible
+          if (element) {
+            element.style.visibility = 'visible';
+            element.style.opacity = '1';
+          }
           // Asegurar que los canvas en el documento clonado tengan willReadFrequently
           const canvases = clonedDoc.querySelectorAll('canvas');
           canvases.forEach(canvas => {
             try {
-              const ctx = canvas.getContext('2d', { willReadFrequently: true });
-              if (ctx) {
-                // El contexto ya está optimizado
-              }
+              canvas.getContext('2d', { willReadFrequently: true });
             } catch (e) {
               // Ignorar si no se puede configurar
             }
           });
         }
       });
+
+      // Verificar que el canvas tenga contenido
+      if (!canvas || canvas.width === 0 || canvas.height === 0) {
+        throw new Error("No se pudo capturar el mapa correctamente");
+      }
 
       return canvas;
     } finally {
@@ -170,7 +195,7 @@ export default function PrintTool({ map, layerManager, activeTool }) {
 
   const generatePDF = async () => {
     if (!map) {
-      alert("Mapa no disponible");
+      setModal({ isOpen: true, message: "Mapa no disponible", type: "error", title: "Error" });
       return;
     }
 
@@ -239,8 +264,19 @@ export default function PrintTool({ map, layerManager, activeTool }) {
       // Mapa
       const mapX = margin;
       const mapY = yPos;
+      
+      // Verificar que el canvas del mapa sea válido
+      if (!mapCanvas || mapCanvas.width === 0 || mapCanvas.height === 0) {
+        throw new Error("El canvas del mapa no es válido");
+      }
+      
+      const mapImageData = mapCanvas.toDataURL("image/png");
+      if (!mapImageData || mapImageData === "data:,") {
+        throw new Error("No se pudo convertir el mapa a imagen");
+      }
+      
       pdf.addImage(
-        mapCanvas.toDataURL("image/png"),
+        mapImageData,
         "PNG",
         mapX,
         mapY,
@@ -312,11 +348,11 @@ export default function PrintTool({ map, layerManager, activeTool }) {
       pdf.save(`mapa_${new Date().toISOString().split('T')[0]}.pdf`);
 
       setIsPrinting(false);
-      alert("Mapa exportado exitosamente como PDF");
+      setModal({ isOpen: true, message: "Mapa exportado exitosamente como PDF", type: "success", title: "Éxito" });
     } catch (error) {
       console.error("Error generando PDF:", error);
       setIsPrinting(false);
-      alert("Error al generar el PDF: " + error.message);
+      setModal({ isOpen: true, message: "Error al generar el PDF: " + error.message, type: "error", title: "Error" });
     }
   };
 
@@ -433,6 +469,14 @@ export default function PrintTool({ map, layerManager, activeTool }) {
           </div>
         )}
       </div>
+
+      <Modal
+        isOpen={modal.isOpen}
+        onClose={() => setModal({ ...modal, isOpen: false })}
+        title={modal.title}
+        message={modal.message}
+        type={modal.type}
+      />
     </div>
   );
 }

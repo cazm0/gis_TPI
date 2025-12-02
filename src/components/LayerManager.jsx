@@ -82,6 +82,11 @@ export default class LayerManager {
         source: source,
       });
 
+      // Guardar metadata en la capa (incluyendo tipo de geometría si está disponible)
+      if (cfg.geometryType) {
+        layer.set('geometryType', cfg.geometryType);
+      }
+
       // Almacenar el nombre activo inicial
       this.activeLayerNames[cfg.id] = initialLayerId;
       this.variantIndex = {}; // Rastrea qué variante se está usando para cada capa
@@ -110,6 +115,14 @@ export default class LayerManager {
           this.tryVariantsOnVisible(cfg.id, layer);
         }
         originalSetVisible(visible);
+        
+        // Si la capa se hace visible y tiene tipo de geometría, posicionarla correctamente
+        if (visible && cfg.geometryType) {
+          // Usar setTimeout para asegurar que la capa esté completamente visible antes de posicionarla
+          setTimeout(() => {
+            this.positionLayerByGeometryType(cfg.id, cfg.geometryType);
+          }, 100);
+        }
       };
 
       this.map.addLayer(layer);
@@ -203,6 +216,19 @@ export default class LayerManager {
   setVisible(id, visible) {
     if (this.layers[id]) {
       this.layers[id].setVisible(visible);
+      
+      // Si la capa se hace visible y tiene tipo de geometría, posicionarla correctamente
+      if (visible) {
+        const layer = this.layers[id];
+        const geometryType = layer.get('geometryType');
+        if (geometryType) {
+          // Usar setTimeout para asegurar que la capa esté completamente visible antes de posicionarla
+          setTimeout(() => {
+            this.positionLayerByGeometryType(id, geometryType);
+          }, 100);
+        }
+      }
+      
       // ⚡ Notificar a React
       if (this.onChange) this.onChange();
     } else if (this.userLayers[id]) {
@@ -335,6 +361,9 @@ export default class LayerManager {
       const stored = localStorage.getItem('userLayers');
       if (stored) {
         const userLayersData = JSON.parse(stored);
+        const loadedLayerIds = [];
+        
+        // Primero crear todas las capas
         Object.keys(userLayersData).forEach(layerId => {
           const layerData = userLayersData[layerId];
           const layer = this.createUserLayer(
@@ -347,6 +376,19 @@ export default class LayerManager {
           // Las capas cargadas desde localStorage se crean visibles por defecto
           if (layer) {
             layer.setVisible(true);
+            loadedLayerIds.push(layerId);
+          }
+        });
+        
+        // Después de cargar todas, reordenar según tipo de geometría
+        // Esto asegura que el orden sea correcto incluso si se cargan en orden diferente
+        loadedLayerIds.forEach(layerId => {
+          const layer = this.userLayers[layerId];
+          if (layer) {
+            const geometryType = layer.get('geometryType');
+            if (geometryType) {
+              this.positionLayerByGeometryType(layerId, geometryType);
+            }
           }
         });
       }
@@ -468,6 +510,10 @@ export default class LayerManager {
 
     // Hacer la capa visible por defecto
     layer.setVisible(true);
+
+    // Posicionar la capa según su tipo de geometría
+    // Orden: Puntos (arriba) -> Líneas (medio) -> Polígonos (abajo)
+    this.positionLayerByGeometryType(layerId, geometryType);
 
     // Cargar estilo personalizado si existe
     const storedData = localStorage.getItem('userLayers');
@@ -636,11 +682,13 @@ export default class LayerManager {
         const layerConfig = layersConfig.find(cfg => cfg.id === id);
         const displayName = layerConfig ? layerConfig.title : (id.split(':')[1] || this.activeLayerNames[id] || id);
         
+        const layer = this.layers[id];
         visible.push({
           id,
           name: this.activeLayerNames[id] || id,
           displayName: displayName,
           isUserLayer: false,
+          geometryType: layer?.get('geometryType') || null, // Obtener tipo de geometría si está definido
           zIndex: this.getLayerZIndex(id)
         });
       }
@@ -658,9 +706,23 @@ export default class LayerManager {
         });
       }
     });
-    // Ordenar por z-index (mayor a menor) para mostrar en la leyenda
-    // Las que están más arriba en la lista (índice 0) deben tener mayor z-index para renderizarse por encima
-    return visible.sort((a, b) => b.zIndex - a.zIndex);
+    
+    // Ordenar por tipo de geometría primero, luego por z-index dentro de cada grupo
+    // Orden: Puntos (arriba) -> Líneas (medio) -> Polígonos (abajo)
+    const geometryOrder = { 'Point': 0, 'LineString': 1, 'Polygon': 2, null: 1.5 }; // null (GeoServer) va entre líneas y polígonos
+    
+    return visible.sort((a, b) => {
+      const aOrder = geometryOrder[a.geometryType] ?? 1.5;
+      const bOrder = geometryOrder[b.geometryType] ?? 1.5;
+      
+      // Primero ordenar por tipo de geometría
+      if (aOrder !== bOrder) {
+        return aOrder - bOrder;
+      }
+      
+      // Si son del mismo tipo, ordenar por z-index (mayor a menor)
+      return b.zIndex - a.zIndex;
+    });
   }
 
   /**
@@ -672,14 +734,54 @@ export default class LayerManager {
     
     if (currentIndex === -1) return;
     
+    const layer = this.layers[layerId] || this.userLayers[layerId];
+    if (!layer) return;
+    
+    // Obtener el tipo de geometría de la capa que se está moviendo
+    const movingLayerGeometryType = layer.get('geometryType') || null;
+    
+    // Si la capa tiene un tipo de geometría, ajustar el targetIndex para que respete el orden por tipo
+    if (movingLayerGeometryType) {
+      const geometryOrder = { 'Point': 0, 'LineString': 1, 'Polygon': 2 };
+      const targetOrder = geometryOrder[movingLayerGeometryType];
+      
+      // Encontrar el rango de índices válidos para este tipo de geometría
+      const layersWithoutCurrent = orderedLayers.filter(l => l.id !== layerId);
+      const sameTypeLayers = layersWithoutCurrent.filter(l => {
+        const layerGeomType = l.geometryType || null;
+        return geometryOrder[layerGeomType] === targetOrder;
+      });
+      
+      // Si hay capas del mismo tipo, ajustar el targetIndex para que esté dentro del grupo
+      if (sameTypeLayers.length > 0) {
+        // Encontrar la posición correcta dentro del grupo del mismo tipo
+        const firstSameTypeIndex = layersWithoutCurrent.findIndex(l => {
+          const layerGeomType = l.geometryType || null;
+          return geometryOrder[layerGeomType] === targetOrder;
+        });
+        const lastSameTypeIndex = firstSameTypeIndex + sameTypeLayers.length - 1;
+        
+        // Ajustar targetIndex para que esté dentro del rango del grupo
+        if (targetIndex < firstSameTypeIndex) {
+          targetIndex = firstSameTypeIndex;
+        } else if (targetIndex > lastSameTypeIndex + 1) {
+          targetIndex = lastSameTypeIndex + 1;
+        }
+      } else {
+        // Si no hay capas del mismo tipo, insertar al principio del grupo correspondiente
+        const insertIndex = layersWithoutCurrent.findIndex(l => {
+          const layerGeomType = l.geometryType || null;
+          return geometryOrder[layerGeomType] > targetOrder;
+        });
+        targetIndex = insertIndex === -1 ? layersWithoutCurrent.length : insertIndex;
+      }
+    }
+    
     // Asegurar que el targetIndex esté en el rango válido (0 a length, permitiendo insertar al final)
     targetIndex = Math.max(0, Math.min(targetIndex, orderedLayers.length));
     
     // Si ya está en la posición objetivo, no hacer nada
     if (currentIndex === targetIndex) return;
-    
-    const layer = this.layers[layerId] || this.userLayers[layerId];
-    if (!layer) return;
     
     // Remover la capa de la lista para calcular el z-index correctamente
     const layersWithoutCurrent = orderedLayers.filter(l => l.id !== layerId);
@@ -756,6 +858,67 @@ export default class LayerManager {
       }
     }
     
+    layer.setZIndex(newZIndex);
+    
+    if (this.onChange) {
+      this.onChange();
+    }
+  }
+
+  /**
+   * Posiciona una capa según su tipo de geometría
+   * Orden: Puntos (arriba) -> Líneas (medio) -> Polígonos (abajo)
+   * Las nuevas capas se insertan al principio de su grupo (arriba de todas las del mismo tipo)
+   */
+  positionLayerByGeometryType(layerId, geometryType) {
+    if (!geometryType) return;
+    
+    const layer = this.layers[layerId] || this.userLayers[layerId];
+    if (!layer) return;
+    
+    const orderedLayers = this.getVisibleLayersOrdered();
+    const geometryOrder = { 'Point': 0, 'LineString': 1, 'Polygon': 2 };
+    const targetOrder = geometryOrder[geometryType];
+    
+    if (targetOrder === undefined) return;
+    
+    // Filtrar capas del mismo tipo (excluyendo la capa actual)
+    const sameTypeLayers = orderedLayers.filter(l => {
+      if (l.id === layerId) return false; // Excluir la capa actual
+      const layerGeomType = l.geometryType || null;
+      return geometryOrder[layerGeomType] === targetOrder;
+    });
+    
+    let newZIndex;
+    
+    if (sameTypeLayers.length > 0) {
+      // Hay capas del mismo tipo: poner esta capa arriba de todas (mayor z-index)
+      const maxZIndex = Math.max(...sameTypeLayers.map(l => l.zIndex || 0));
+      newZIndex = maxZIndex + 1;
+    } else {
+      // No hay capas del mismo tipo: encontrar la primera capa del siguiente tipo
+      const nextTypeLayer = orderedLayers.find(l => {
+        const layerGeomType = l.geometryType || null;
+        const layerOrder = geometryOrder[layerGeomType] ?? 1.5;
+        return layerOrder > targetOrder;
+      });
+      
+      if (nextTypeLayer) {
+        // Hay capas del siguiente tipo: poner esta capa justo arriba (mayor z-index que la primera del siguiente tipo)
+        newZIndex = (nextTypeLayer.zIndex || 0) + 1;
+      } else {
+        // No hay capas del siguiente tipo: poner al final (z-index mínimo)
+        const allOtherLayers = orderedLayers.filter(l => l.id !== layerId);
+        if (allOtherLayers.length > 0) {
+          const minZIndex = Math.min(...allOtherLayers.map(l => l.zIndex || 0));
+          newZIndex = Math.min(0, minZIndex - 1);
+        } else {
+          newZIndex = 0;
+        }
+      }
+    }
+    
+    // Aplicar el nuevo z-index
     layer.setZIndex(newZIndex);
     
     if (this.onChange) {

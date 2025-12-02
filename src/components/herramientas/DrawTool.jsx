@@ -6,16 +6,13 @@ import { Style, Stroke, Fill, Circle as CircleStyle } from "ol/style";
 import { GeoJSON } from "ol/format";
 import { Point, LineString, Polygon } from "ol/geom";
 import { URL_WFS } from "../../config";
+import Modal from "../common/Modal";
 import "./DrawTool.css";
-
-// Cache para tipos de geometría de capas
-const layerGeometryCache = {};
 
 export default function DrawTool({ map, activeTool, layerManager, onToolChange, geometryType: propGeometryType, onGeometryTypeChange }) {
   const drawRef = useRef(null);
   const drawLayerRef = useRef(null);
-  const [localGeometryType, setLocalGeometryType] = useState("Point");
-  const geometryType = propGeometryType !== undefined ? propGeometryType : localGeometryType;
+  const geometryType = propGeometryType !== undefined ? propGeometryType : "Point";
   const [showDialog, setShowDialog] = useState(false);
   const [drawnFeature, setDrawnFeature] = useState(null);
   const [targetLayer, setTargetLayer] = useState(() => {
@@ -38,6 +35,7 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
   const [featureAttributes, setFeatureAttributes] = useState({}); // Valores de atributos para la feature actual
   const [showAttributesForm, setShowAttributesForm] = useState(false);
   const hintRef = useRef(null);
+  const [modal, setModal] = useState({ isOpen: false, message: "", type: "info", title: "" });
 
   // Crear capa temporal para dibujar
   useEffect(() => {
@@ -94,17 +92,36 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
     const targetElement = map.getTargetElement();
     const source = drawLayerRef.current.getSource();
 
-    // Mostrar hint
+    // Función para actualizar el hint
+    const updateHint = (message) => {
+      if (hintRef.current) {
+        hintRef.current.textContent = message;
+      }
+    };
+
+    // Función para obtener el mensaje inicial según el tipo de geometría
+    const getInitialMessage = () => {
+      if (geometryType === "Point") {
+        return "Dibuja un punto en el mapa";
+      } else if (geometryType === "LineString") {
+        return "Dibuja una línea en el mapa. Doble clic para finalizar";
+      } else if (geometryType === "Polygon") {
+        return "Dibuja un polígono en el mapa. Vuelve al primer punto para finalizar";
+      } else {
+        return "Dibuja en el mapa";
+      }
+    };
+
+    // Mostrar hint con mensaje específico según el tipo de geometría
     if (!hintRef.current) {
       const hint = document.createElement("div");
       hint.className = "draw-hint";
-      const typeText = geometryType === "Point" ? "punto" : geometryType === "LineString" ? "línea" : "polígono";
-      hint.textContent = `Dibuja un ${typeText} en el mapa`;
+      hint.textContent = getInitialMessage();
       targetElement.appendChild(hint);
       hintRef.current = hint;
     } else {
-      const typeText = geometryType === "Point" ? "punto" : geometryType === "LineString" ? "línea" : "polígono";
-      hintRef.current.textContent = `Dibuja un ${typeText} en el mapa`;
+      // Actualizar mensaje según el tipo
+      updateHint(getInitialMessage());
     }
 
     // Limpiar dibujos anteriores
@@ -138,13 +155,37 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
     map.addInteraction(draw);
     drawRef.current = draw;
 
+    // Actualizar hint cuando comienza el dibujo
+    draw.on("drawstart", () => {
+      if (geometryType === "LineString") {
+        updateHint("Dibuja una línea en el mapa. Doble clic para finalizar");
+      } else if (geometryType === "Polygon") {
+        updateHint("Dibuja un polígono en el mapa. Vuelve al primer punto para finalizar");
+      }
+    });
+
     draw.on("drawend", (event) => {
       const feature = event.feature;
       setDrawnFeature(feature);
       setShowDialog(true);
+      // Ocultar hint cuando termina el dibujo
+      if (hintRef.current) {
+        updateHint("");
+      }
       // Desactivar la herramienta temporalmente
       if (onToolChange) {
         onToolChange(null);
+      }
+    });
+
+    // Actualizar hint cuando se aborta el dibujo
+    draw.on("drawabort", () => {
+      if (geometryType === "Point") {
+        updateHint("Dibuja un punto en el mapa");
+      } else if (geometryType === "LineString") {
+        updateHint("Dibuja una línea en el mapa. Doble clic para finalizar");
+      } else if (geometryType === "Polygon") {
+        updateHint("Dibuja un polígono en el mapa. Vuelve al primer punto para finalizar");
       }
     });
 
@@ -227,7 +268,7 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
       if (targetLayer === "existing") {
         // Guardar en capa existente (GeoServer o usuario)
         if (!selectedExistingLayer) {
-          alert("Por favor selecciona una capa existente");
+          setModal({ isOpen: true, message: "Por favor selecciona una capa existente", type: "warning", title: "Advertencia" });
           setIsSaving(false);
           return;
         }
@@ -241,7 +282,7 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
           const userLayer = layerManager.userLayers[layerId];
           
           if (!userLayer) {
-            alert("La capa seleccionada no existe");
+            setModal({ isOpen: true, message: "La capa seleccionada no existe", type: "error", title: "Error" });
             setIsSaving(false);
             return;
           }
@@ -267,7 +308,7 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
 
           // Agregar feature a la capa (sin atributos)
           layerManager.addFeatureToUserLayer(layerId, drawnFeature);
-          alert(`Feature guardado en capa "${userLayer.get('title')}" (en memoria)`);
+          setModal({ isOpen: true, message: `Feature guardado en capa "${userLayer.get('title')}" (en memoria)`, type: "success", title: "Éxito" });
           
           // Guardar selección en localStorage
           localStorage.setItem('drawTool_lastTarget', targetLayer);
@@ -370,11 +411,11 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
           throw new Error("El servidor reportó un error al guardar el feature");
         }
 
-        alert("Feature guardado exitosamente en GeoServer");
+        setModal({ isOpen: true, message: "Feature guardado exitosamente en GeoServer", type: "success", title: "Éxito" });
       } else {
         // Guardar en nueva capa de usuario (en memoria)
         if (!newLayerName.trim()) {
-          alert("Por favor ingresa un nombre para la nueva capa");
+          setModal({ isOpen: true, message: "Por favor ingresa un nombre para la nueva capa", type: "warning", title: "Advertencia" });
           setIsSaving(false);
           return;
         }
@@ -386,7 +427,7 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
         // Verificar si la capa ya existe
         let userLayer = layerManager.userLayers[layerId];
         if (userLayer) {
-          alert(`Ya existe una capa con el nombre "${cleanName}". Por favor elige otro nombre o selecciona "Capa existente" para agregar a esa capa.`);
+          setModal({ isOpen: true, message: `Ya existe una capa con el nombre "${cleanName}". Por favor elige otro nombre o selecciona "Capa existente" para agregar a esa capa.`, type: "warning", title: "Advertencia" });
           setIsSaving(false);
           return;
         }
@@ -417,7 +458,7 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
       }
     } catch (error) {
       console.error("Error guardando feature:", error);
-      alert(`Error al guardar el feature: ${error.message}`);
+      setModal({ isOpen: true, message: `Error al guardar el feature: ${error.message}`, type: "error", title: "Error" });
     } finally {
       setIsSaving(false);
     }
@@ -473,7 +514,7 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
         // Validar que todos los atributos tengan nombre
         const invalidAttrs = layerAttributes.filter(attr => !attr.name.trim());
         if (invalidAttrs.length > 0) {
-          alert("Por favor completa el nombre de todos los atributos o elimina los que no uses.");
+          setModal({ isOpen: true, message: "Por favor completa el nombre de todos los atributos o elimina los que no uses.", type: "warning", title: "Advertencia" });
           setIsSaving(false);
           return;
         }
@@ -515,7 +556,7 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
         });
 
         layerManager.addFeatureToUserLayer(layerId, drawnFeature);
-        alert(`Feature guardado en capa "${cleanName}" (en memoria)`);
+        setModal({ isOpen: true, message: `Feature guardado en capa "${cleanName}" (en memoria)`, type: "success", title: "Éxito" });
       } else {
         // Agregar a capa existente con atributos
         const layerId = selectedExistingLayer;
@@ -541,7 +582,7 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
         });
 
         layerManager.addFeatureToUserLayer(layerId, drawnFeature);
-        alert(`Feature guardado en capa "${userLayer.get('title')}" (en memoria)`);
+        setModal({ isOpen: true, message: `Feature guardado en capa "${userLayer.get('title')}" (en memoria)`, type: "success", title: "Éxito" });
       }
 
       // Guardar selección en localStorage
@@ -566,7 +607,7 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
       }
     } catch (error) {
       console.error("Error guardando feature:", error);
-      alert(`Error al guardar el feature: ${error.message}`);
+      setModal({ isOpen: true, message: `Error al guardar el feature: ${error.message}`, type: "error", title: "Error" });
     } finally {
       setIsSaving(false);
     }
@@ -880,6 +921,14 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
           </div>
         </div>
       )}
+
+      <Modal
+        isOpen={modal.isOpen}
+        onClose={() => setModal({ ...modal, isOpen: false })}
+        title={modal.title}
+        message={modal.message}
+        type={modal.type}
+      />
     </>
   );
 }

@@ -15,6 +15,7 @@ export default function ActiveLayersLegend({ layerManager, update }) {
   const activeLayers = useMemo(() => {
     if (!layerManager) return [];
     return layerManager.getVisibleLayersOrdered();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layerManager, update]); // update es necesario para re-renderizar cuando cambian las capas visibles
 
   // Crear una clave estable basada en los IDs de las capas (sin orden)
@@ -40,7 +41,6 @@ export default function ActiveLayersLegend({ layerManager, update }) {
     }
 
     // Verificar si hay capas nuevas que necesitan leyendas
-    const currentLayerIds = new Set(activeLayers.map(l => l.id));
     const newLayers = activeLayers.filter(layer => !loadedLayerIdsRef.current.has(layer.id));
 
     // Solo cargar si hay capas nuevas
