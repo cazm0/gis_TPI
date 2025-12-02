@@ -1,13 +1,14 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import VectorSource from "ol/source/Vector";
 import VectorLayer from "ol/layer/Vector";
 import Feature from "ol/Feature";
 import { Style, Stroke, Fill, Circle as CircleStyle } from "ol/style";
 import { GeoJSON } from "ol/format";
-import { transform, fromLonLat, toLonLat } from "ol/proj";
+import { toLonLat } from "ol/proj";
 import { Point, Polygon } from "ol/geom";
 // Removido getDistance - usamos distancia euclidiana en coordenadas del mapa
 import { URL_WFS } from "../../config";
+import { layersConfig } from "../../layers";
 import "./QueryTool.css";
 
 export default function QueryTool({ map, activeTool, layerManager }) {
@@ -19,6 +20,43 @@ export default function QueryTool({ map, activeTool, layerManager }) {
   const [selectedFeature, setSelectedFeature] = useState(null);
   const isDrawingRef = useRef(false);
   const startCoordRef = useRef(null);
+
+  // Función helper para obtener el nombre de visualización de una capa
+  const getLayerDisplayName = (layerName) => {
+    if (layerName.startsWith('user:')) {
+      // Para capas de usuario, obtener el título de la capa
+      const userLayer = layerManager?.userLayers?.[layerName];
+      if (userLayer) {
+        return userLayer.get('title') || layerName.replace('user:', '');
+      }
+      return layerName.replace('user:', '');
+    } else {
+      // Para capas de GeoServer, buscar en la configuración
+      // Primero intentar coincidencia exacta
+      let layerConfig = layersConfig.find(cfg => cfg.id === layerName);
+      
+      // Si no encuentra, intentar sin el sufijo numérico (GeoServer a veces agrega "0", "1", etc.)
+      if (!layerConfig) {
+        const layerNameParts = layerName.split(':');
+        if (layerNameParts.length === 2) {
+          const workspace = layerNameParts[0];
+          const baseName = layerNameParts[1].replace(/[0-9]+$/, ''); // Remover sufijos numéricos al final
+          const baseId = `${workspace}:${baseName}`;
+          layerConfig = layersConfig.find(cfg => cfg.id === baseId);
+        }
+      }
+      
+      if (layerConfig) {
+        return layerConfig.title;
+      }
+      // Fallback: usar el nombre después de los dos puntos, removiendo sufijos numéricos
+      const layerNameParts = layerName.split(':');
+      if (layerNameParts.length === 2) {
+        return layerNameParts[1].replace(/[0-9]+$/, '').replace(/_/g, ' ');
+      }
+      return layerName.split(':')[1] || layerName;
+    }
+  };
 
   // Crear capa para resaltar features seleccionadas
   useEffect(() => {
@@ -127,7 +165,7 @@ export default function QueryTool({ map, activeTool, layerManager }) {
   };
 
   // Consulta WFS por punto (objeto más cercano)
-  const queryByPoint = async (coordinate) => {
+  const queryByPoint = useCallback(async (coordinate) => {
     const visibleLayers = layerManager.getVisibleLayers();
     
     if (visibleLayers.length === 0) {
@@ -194,8 +232,7 @@ export default function QueryTool({ map, activeTool, layerManager }) {
           });
 
           if (closestFeature) {
-            const displayName = layerId.replace('user:', '');
-            const resolution = map.getView().getResolution();
+            const displayName = getLayerDisplayName(layerId);
             const latRad = (lonLat[1] * Math.PI) / 180;
             const metersPerUnit = Math.cos(latRad) * 111320;
             const distanceInMeters = minDistance * metersPerUnit;
@@ -203,16 +240,17 @@ export default function QueryTool({ map, activeTool, layerManager }) {
             allFeatures.push({
               feature: closestFeature,
               layerName: layerId,
+              layerDisplayName: displayName,
               distance: distanceInMeters / 1000,
               distancePixels: minDistance,
               properties: closestFeature.getProperties(),
             });
             layerResults[displayName] = 1;
           } else {
-            layerResults[layerId.replace('user:', '')] = 0;
+            layerResults[getLayerDisplayName(layerId)] = 0;
           }
         } else {
-          layerResults[layerId.replace('user:', '')] = 0;
+          layerResults[getLayerDisplayName(layerId)] = 0;
         }
       });
 
@@ -301,16 +339,17 @@ export default function QueryTool({ map, activeTool, layerManager }) {
                 // Convertir distancia a metros para mostrar
                 // En EPSG:3857, las coordenadas están en metros en el ecuador
                 // Aproximamos multiplicando por el coseno de la latitud para mejor precisión
-                const resolution = map.getView().getResolution();
                 const center = map.getView().getCenter();
                 const centerLonLat = toLonLat(center, "EPSG:3857");
                 const latRad = (centerLonLat[1] * Math.PI) / 180;
                 const metersPerUnit = Math.cos(latRad) * 111320; // metros por unidad en esta latitud
                 const distanceInMeters = distance * metersPerUnit;
                 
+                const displayName = getLayerDisplayName(layerName);
                 closestFeature = { 
                   feature, 
-                  layerName, 
+                  layerName,
+                  layerDisplayName: displayName,
                   distance: distanceInMeters / 1000, // En km para mostrar
                   distancePixels: distance, // Distancia en unidades del mapa (para comparación)
                   properties: feature.getProperties() 
@@ -320,16 +359,16 @@ export default function QueryTool({ map, activeTool, layerManager }) {
 
             if (closestFeature) {
               allFeatures.push(closestFeature);
-              layerResults[layerName] = 1;
+              layerResults[getLayerDisplayName(layerName)] = 1;
             } else {
-              layerResults[layerName] = 0;
+              layerResults[getLayerDisplayName(layerName)] = 0;
             }
           } else {
-            layerResults[layerName] = 0;
+            layerResults[getLayerDisplayName(layerName)] = 0;
           }
           } catch (error) {
             console.error(`Error consultando capa ${layerName}:`, error);
-            layerResults[layerName] = `Error: ${error.message}`;
+            layerResults[getLayerDisplayName(layerName)] = `Error: ${error.message}`;
           }
         });
 
@@ -364,10 +403,10 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [map, layerManager, getLayerDisplayName]);
 
   // Consulta WFS por rectángulo (todos los objetos que intersecten)
-  const queryByRectangle = async (extent) => {
+  const queryByRectangle = useCallback(async (extent) => {
     const visibleLayers = layerManager.getVisibleLayers();
     
     if (visibleLayers.length === 0) {
@@ -407,18 +446,19 @@ export default function QueryTool({ map, activeTool, layerManager }) {
       // Convertir extent a coordenadas del mapa (EPSG:3857) para la intersección
       userLayerIds.forEach(layerId => {
         const foundFeatures = queryUserLayer(layerId, null, extent, false);
+        const displayName = getLayerDisplayName(layerId);
         if (foundFeatures.length > 0) {
-          const displayName = layerId.replace('user:', '');
           foundFeatures.forEach(feature => {
             allFeatures.push({
               feature,
               layerName: layerId,
+              layerDisplayName: displayName,
               properties: feature.getProperties(),
             });
           });
           layerResults[displayName] = foundFeatures.length;
         } else {
-          layerResults[layerId.replace('user:', '')] = 0;
+          layerResults[displayName] = 0;
         }
       });
 
@@ -474,36 +514,30 @@ export default function QueryTool({ map, activeTool, layerManager }) {
             }
 
             // Filtrar features que realmente intersectan con el rectángulo
-            const rectangle = new Polygon([[
-              [extent[0], extent[1]],
-              [extent[2], extent[1]],
-              [extent[2], extent[3]],
-              [extent[0], extent[3]],
-              [extent[0], extent[1]],
-            ]]);
-
             let intersectCount = 0;
             features.forEach((feature) => {
               const geometry = feature.getGeometry();
               // Verificar si la geometría intersecta con el rectángulo
               // (si al menos una parte del objeto está dentro del rectángulo)
               if (geometry.intersectsExtent(extent)) {
+                const displayName = getLayerDisplayName(layerName);
                 allFeatures.push({
                   feature,
                   layerName,
+                  layerDisplayName: displayName,
                   properties: feature.getProperties(),
                 });
                 intersectCount++;
               }
             });
 
-            layerResults[layerName] = intersectCount;
+            layerResults[getLayerDisplayName(layerName)] = intersectCount;
           } else {
-            layerResults[layerName] = 0;
+            layerResults[getLayerDisplayName(layerName)] = 0;
           }
           } catch (error) {
             console.error(`Error consultando capa ${layerName}:`, error);
-            layerResults[layerName] = `Error: ${error.message}`;
+            layerResults[getLayerDisplayName(layerName)] = `Error: ${error.message}`;
           }
         });
 
@@ -535,7 +569,7 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [map, layerManager]);
 
   // Manejar la herramienta de consulta
   useEffect(() => {
@@ -694,7 +728,7 @@ export default function QueryTool({ map, activeTool, layerManager }) {
       isDrawingRef.current = false;
       startCoordRef.current = null;
     };
-  }, [activeTool, map, layerManager]);
+  }, [activeTool, map, layerManager, queryByPoint, queryByRectangle]);
 
   // Manejar selección de feature para mostrar detalles
   useEffect(() => {
@@ -770,7 +804,7 @@ export default function QueryTool({ map, activeTool, layerManager }) {
       {queryResults && (
         <div className="query-results">
           <div className="query-results-header">
-            <h3>Resultados de Consulta WFS</h3>
+            <h3>Resultados de Consulta</h3>
             <button
               className="query-close"
               onClick={() => {
@@ -810,7 +844,7 @@ export default function QueryTool({ map, activeTool, layerManager }) {
                       }}
                     >
                       <div className="query-feature-header">
-                        <strong>{item.layerName.split(":")[1]}</strong>
+                        <strong>{item.layerDisplayName || getLayerDisplayName(item.layerName)}</strong>
                         <span className="query-feature-type">
                           {item.feature.getGeometry().getType()}
                         </span>
@@ -853,7 +887,7 @@ export default function QueryTool({ map, activeTool, layerManager }) {
                             );
                             
                             // Actualizar contador de capa
-                            const layerDisplayName = selectedFeature.layerName.replace('user:', '');
+                            const layerDisplayName = selectedFeature.layerDisplayName || getLayerDisplayName(selectedFeature.layerName);
                             const updatedLayerResults = { ...queryResults.layerResults };
                             if (updatedLayerResults[layerDisplayName] > 0) {
                               updatedLayerResults[layerDisplayName]--;
@@ -882,7 +916,7 @@ export default function QueryTool({ map, activeTool, layerManager }) {
                 <div className="query-details-content">
                   <div className="query-detail-row">
                     <strong>Capa:</strong>
-                    <span>{selectedFeature.layerName}</span>
+                    <span>{selectedFeature.layerDisplayName || getLayerDisplayName(selectedFeature.layerName)}</span>
                   </div>
                   <div className="query-detail-row">
                     <strong>Geometría:</strong>
@@ -924,7 +958,7 @@ export default function QueryTool({ map, activeTool, layerManager }) {
                   {Object.entries(queryResults.layerResults).map(
                     ([layer, count]) => (
                       <li key={layer}>
-                        <strong>{layer.split(":")[1]}:</strong>{" "}
+                        <strong>{layer}:</strong>{" "}
                         {typeof count === "number" ? `${count} elemento(s)` : count}
                       </li>
                     )

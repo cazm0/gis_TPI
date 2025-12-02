@@ -1,11 +1,9 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, useCallback } from "react";
 import VectorSource from "ol/source/Vector";
 import VectorLayer from "ol/layer/Vector";
 import { Draw } from "ol/interaction";
-import Feature from "ol/Feature";
 import { Style, Stroke, Fill, Circle as CircleStyle } from "ol/style";
 import { GeoJSON } from "ol/format";
-import { toLonLat } from "ol/proj";
 import { Point, LineString, Polygon } from "ol/geom";
 import { URL_WFS } from "../../config";
 import "./DrawTool.css";
@@ -18,7 +16,6 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
   const drawLayerRef = useRef(null);
   const [localGeometryType, setLocalGeometryType] = useState("Point");
   const geometryType = propGeometryType !== undefined ? propGeometryType : localGeometryType;
-  const setGeometryType = onGeometryTypeChange || setLocalGeometryType;
   const [showDialog, setShowDialog] = useState(false);
   const [drawnFeature, setDrawnFeature] = useState(null);
   const [targetLayer, setTargetLayer] = useState(() => {
@@ -163,98 +160,8 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
     };
   }, [map, activeTool, geometryType, onToolChange]);
 
-  // Obtener tipo de geometría de una capa usando WFS DescribeFeatureType
-  const getLayerGeometryType = async (layerName) => {
-    // Verificar cache primero
-    if (layerGeometryCache[layerName]) {
-      return layerGeometryCache[layerName];
-    }
-
-    try {
-      const params = new URLSearchParams({
-        service: 'WFS',
-        version: '1.1.0',
-        request: 'DescribeFeatureType',
-        typeName: layerName,
-      });
-
-      const response = await fetch(`${URL_WFS}?${params.toString()}`);
-      if (!response.ok) {
-        console.warn(`No se pudo obtener DescribeFeatureType para ${layerName}`);
-        return null;
-      }
-
-      const text = await response.text();
-      // Parsear el XML de respuesta
-      const parser = new DOMParser();
-      const xmlDoc = parser.parseFromString(text, 'text/xml');
-      
-      // Buscar errores de parsing
-      const parserError = xmlDoc.querySelector('parsererror');
-      if (parserError) {
-        console.warn(`Error parseando XML para ${layerName}`);
-        return null;
-      }
-      
-      // Buscar el elemento de geometría - buscar en todos los namespaces posibles
-      const allElements = xmlDoc.getElementsByTagNameNS('*', 'element');
-      for (let i = 0; i < allElements.length; i++) {
-        const element = allElements[i];
-        const type = element.getAttribute('type') || '';
-        const name = element.getAttribute('name') || '';
-        
-        // Si el nombre sugiere que es geometría
-        if (name.toLowerCase().includes('geom') || name.toLowerCase().includes('geometry') || 
-            name.toLowerCase().includes('the_geom') || name.toLowerCase().endsWith('_geom')) {
-          // Buscar el tipo de geometría
-          if (type.includes('Point') || type.includes('point')) {
-            layerGeometryCache[layerName] = 'Point';
-            return 'Point';
-          } else if (type.includes('LineString') || type.includes('linestring') || type.includes('line')) {
-            layerGeometryCache[layerName] = 'LineString';
-            return 'LineString';
-          } else if (type.includes('Polygon') || type.includes('polygon')) {
-            layerGeometryCache[layerName] = 'Polygon';
-            return 'Polygon';
-          }
-        }
-        
-        // También buscar directamente en el tipo
-        if (type && (type.includes('Point') || type.includes('LineString') || type.includes('Polygon'))) {
-          let geomType = null;
-          if (type.includes('Point')) geomType = 'Point';
-          else if (type.includes('LineString')) geomType = 'LineString';
-          else if (type.includes('Polygon')) geomType = 'Polygon';
-          
-          if (geomType) {
-            layerGeometryCache[layerName] = geomType;
-            return geomType;
-          }
-        }
-      }
-
-      // Si no se encuentra, intentar inferir del nombre de la capa
-      const layerNameLower = layerName.toLowerCase();
-      if (layerNameLower.includes('punto') || layerNameLower.includes('point') || layerNameLower.includes('puntos')) {
-        layerGeometryCache[layerName] = 'Point';
-        return 'Point';
-      } else if (layerNameLower.includes('linea') || layerNameLower.includes('line') || layerNameLower.includes('via') || layerNameLower.includes('red')) {
-        layerGeometryCache[layerName] = 'LineString';
-        return 'LineString';
-      } else if (layerNameLower.includes('poligono') || layerNameLower.includes('polygon') || layerNameLower.includes('area')) {
-        layerGeometryCache[layerName] = 'Polygon';
-        return 'Polygon';
-      }
-
-      return null;
-    } catch (error) {
-      console.error(`Error obteniendo tipo de geometría para ${layerName}:`, error);
-      return null;
-    }
-  };
-
   // Obtener capas visibles filtradas por tipo de geometría (solo capas de usuario)
-  const getVisibleLayersForSelection = async () => {
+  const getVisibleLayersForSelection = useCallback(async () => {
     if (!layerManager) return [];
     
     // Solo obtener capas de usuario visibles
@@ -281,7 +188,7 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
     });
 
     return filtered;
-  };
+  }, [layerManager, geometryType]);
 
   // Cargar capas filtradas cuando cambia el tipo de geometría o se abre el diálogo
   useEffect(() => {
@@ -309,7 +216,7 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
         }
       });
     }
-  }, [showDialog, geometryType, layerManager, drawnFeature]);
+  }, [showDialog, geometryType, layerManager, drawnFeature, getVisibleLayersForSelection, selectedExistingLayer]);
 
   // Guardar feature en memoria (capa de usuario) o en GeoServer (capa existente)
   const saveFeature = async () => {
@@ -581,7 +488,7 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
           name: attr.name.trim().replace(/[^a-zA-Z0-9_]/g, '_'),
         }));
 
-        const userLayer = layerManager.createUserLayer(
+        layerManager.createUserLayer(
           layerId,
           cleanName,
           geometryType,

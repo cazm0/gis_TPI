@@ -13,11 +13,17 @@ export default function ActiveLayersLegend({ layerManager, update }) {
   const activeLayers = useMemo(() => {
     if (!layerManager) return [];
     return layerManager.getVisibleLayersOrdered();
-  }, [layerManager]);
+  }, [layerManager, update]); // update es necesario para re-renderizar cuando cambian las capas visibles
 
   // Cargar leyendas de capas activas
   useEffect(() => {
-    if (!layerManager || activeLayers.length === 0) {
+    if (!layerManager) {
+      setLegends({});
+      return;
+    }
+    
+    // Si no hay capas activas, limpiar leyendas pero no ocultar el componente
+    if (activeLayers.length === 0) {
       setLegends({});
       return;
     }
@@ -155,11 +161,13 @@ export default function ActiveLayersLegend({ layerManager, update }) {
               }
 
               const isDragging = draggedLayerId === layer.id;
-              const showDropIndicator = dragOverIndex === index && draggedLayerId !== layer.id;
+              // Mostrar el indicador antes del elemento si dragOverIndex === index, o después si dragOverIndex === index + 1
+              const showDropIndicatorBefore = dragOverIndex === index && draggedLayerId !== layer.id;
+              const showDropIndicatorAfter = dragOverIndex === index + 1 && draggedLayerId !== layer.id;
 
               return (
                 <React.Fragment key={layer.id}>
-                  {showDropIndicator && (
+                  {showDropIndicatorBefore && (
                     <div className="legend-drop-indicator"></div>
                   )}
                   <div 
@@ -206,16 +214,21 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                         const currentIndex = activeLayers.findIndex(l => l.id === draggedId);
                         if (currentIndex !== -1) {
                           // Calcular la posición objetivo basada en dónde se soltó
+                          // El indicador de drop (dragOverIndex) ya muestra la posición correcta
+                          let targetIndex = dragOverIndex !== null ? dragOverIndex : index;
+                          
                           // Si se arrastra hacia abajo (currentIndex < index), insertar después del elemento actual
                           // Si se arrastra hacia arriba (currentIndex > index), insertar antes del elemento actual
-                          let targetIndex = index;
-                          if (currentIndex < index) {
-                            // Arrastrando hacia abajo: insertar después del elemento sobre el que se soltó
-                            targetIndex = index + 1;
-                          } else {
-                            // Arrastrando hacia arriba: insertar antes del elemento sobre el que se soltó
-                            targetIndex = index;
+                          if (dragOverIndex === null) {
+                            if (currentIndex < index) {
+                              // Arrastrando hacia abajo: insertar después del elemento sobre el que se soltó
+                              targetIndex = index + 1;
+                            } else {
+                              // Arrastrando hacia arriba: insertar antes del elemento sobre el que se soltó
+                              targetIndex = index;
+                            }
                           }
+                          
                           // Asegurar que el índice no exceda el rango
                           targetIndex = Math.max(0, Math.min(targetIndex, activeLayers.length - 1));
                           layerManager.moveLayerToPosition(draggedId, targetIndex);
@@ -268,11 +281,14 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                       </div>
                     ) : (
                       <div className="legend-symbol-container">
-                        <div className="legend-symbol-placeholder"></div>
+                        <div className="legend-symbol-placeholder" style={{ width: '20px', height: '20px' }}></div>
                       </div>
                     )}
                     <span className="legend-label">{layer.displayName}</span>
                   </div>
+                  {showDropIndicatorAfter && (
+                    <div className="legend-drop-indicator"></div>
+                  )}
                 </div>
                 </React.Fragment>
               );
@@ -329,19 +345,23 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                     if (draggedId && draggedId !== layer.id) {
                       const currentIndex = activeLayers.findIndex(l => l.id === draggedId);
                       if (currentIndex !== -1) {
-                        // Calcular la posición objetivo basada en dónde se soltó
-                        // Si se arrastra hacia abajo (currentIndex < index), insertar después del elemento actual
-                        // Si se arrastra hacia arriba (currentIndex > index), insertar antes del elemento actual
-                        let targetIndex = index;
-                        if (currentIndex < index) {
-                          // Arrastrando hacia abajo: insertar después del elemento sobre el que se soltó
-                          targetIndex = index + 1;
+                        // Usar el dragOverIndex que se calculó en onDragOver
+                        let targetIndex;
+                        if (dragOverIndex !== null) {
+                          targetIndex = dragOverIndex;
                         } else {
-                          // Arrastrando hacia arriba: insertar antes del elemento sobre el que se soltó
-                          targetIndex = index;
+                          // Fallback: calcular basado en la posición actual
+                          const draggedIndex = activeLayers.findIndex(l => l.id === draggedId);
+                          if (draggedIndex < index) {
+                            targetIndex = index + 1;
+                          } else {
+                            targetIndex = index;
+                          }
                         }
-                        // Asegurar que el índice no exceda el rango
-                        targetIndex = Math.max(0, Math.min(targetIndex, activeLayers.length - 1));
+                        
+                        // Asegurar que el índice esté en el rango válido
+                        // Permitir insertar al final (targetIndex puede ser igual a length)
+                        targetIndex = Math.max(0, Math.min(targetIndex, activeLayers.length));
                         layerManager.moveLayerToPosition(draggedId, targetIndex);
                       }
                     }
@@ -431,6 +451,9 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                   </>
                 )}
                   </div>
+                  {dragOverIndex === index + 1 && draggedLayerId !== layer.id && (
+                    <div className="legend-drop-indicator"></div>
+                  )}
                 </div>
               </React.Fragment>
             );

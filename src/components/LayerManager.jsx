@@ -26,10 +26,8 @@ export default class LayerManager {
       // Generar variantes posibles del nombre
       // Esto incluye: original, con "0", y también variantes con caracteres especiales codificados
       const variants = [
-        layerName,        // Nombre original
         layerName + '0',  // Con 0 al final (GeoServer a veces agrega esto)
-        layerName + '1',  // Con 1 al final
-        layerName + '2',  // Con 2 al final
+        layerName,        // Nombre original
       ];
       
       // Agregar variantes con caracteres especiales codificados (GeoServer a veces codifica caracteres)
@@ -68,14 +66,14 @@ export default class LayerManager {
       const initialLayerId = this.layerVariants[cfg.id][0];
       
       const source = new ImageWMS({
-        url: URL_OGC,
-        params: {
+          url: URL_OGC,
+          params: {
           LAYERS: initialLayerId,
-          VERSION: "1.1.0",
-          SRS: "EPSG:4326",
-          FORMAT: "image/png",
-        },
-        serverType: "geoserver",
+            VERSION: "1.1.0",
+            SRS: "EPSG:4326",
+            FORMAT: "image/png",
+          },
+          serverType: "geoserver",
       });
 
 
@@ -88,6 +86,14 @@ export default class LayerManager {
       this.activeLayerNames[cfg.id] = initialLayerId;
       this.variantIndex = {}; // Rastrea qué variante se está usando para cada capa
       this.variantIndex[cfg.id] = 0;
+
+      // Escuchar cuando la imagen se carga exitosamente para actualizar leyendas
+      source.on('imageloadend', () => {
+        // Solo actualizar si la capa está visible
+        if (layer.getVisible() && this.onChange) {
+          this.onChange();
+        }
+      });
 
       // Escuchar errores en el source para intentar variantes automáticamente
       source.on('imageloaderror', (error) => {
@@ -144,10 +150,23 @@ export default class LayerManager {
       
       source.once('imageloaderror', errorHandler);
       
+      // Escuchar cuando la imagen se carga exitosamente
+      const loadHandler = () => {
+        source.un('imageloadend', loadHandler);
+        source.un('imageloaderror', errorHandler);
+        console.log(`✓ Capa ${configId} cargada exitosamente con variante: ${variant}`);
+        // Actualizar leyendas cuando la capa termine de cargar
+        if (layer.getVisible() && this.onChange) {
+          this.onChange();
+        }
+      };
+      
+      source.once('imageloadend', loadHandler);
+      
       // Si no hay error en 1 segundo, asumimos que esta variante funciona
       setTimeout(() => {
         source.un('imageloaderror', errorHandler);
-        console.log(`✓ Capa ${configId} cargada exitosamente con variante: ${variant}`);
+        source.un('imageloadend', loadHandler);
       }, 1000);
     };
 
@@ -613,10 +632,14 @@ export default class LayerManager {
     const visible = [];
     Object.keys(this.layers).forEach((id) => {
       if (this.getVisible(id)) {
+        // Buscar el título en la configuración de capas
+        const layerConfig = layersConfig.find(cfg => cfg.id === id);
+        const displayName = layerConfig ? layerConfig.title : (id.split(':')[1] || this.activeLayerNames[id] || id);
+        
         visible.push({
           id,
           name: this.activeLayerNames[id] || id,
-          displayName: id.split(':')[1] || this.activeLayerNames[id] || id,
+          displayName: displayName,
           isUserLayer: false,
           zIndex: this.getLayerZIndex(id)
         });
@@ -649,14 +672,17 @@ export default class LayerManager {
     
     if (currentIndex === -1) return;
     
-    // Asegurar que el targetIndex esté en el rango válido
-    targetIndex = Math.max(0, Math.min(targetIndex, orderedLayers.length - 1));
+    // Asegurar que el targetIndex esté en el rango válido (0 a length, permitiendo insertar al final)
+    targetIndex = Math.max(0, Math.min(targetIndex, orderedLayers.length));
     
     // Si ya está en la posición objetivo, no hacer nada
     if (currentIndex === targetIndex) return;
     
     const layer = this.layers[layerId] || this.userLayers[layerId];
     if (!layer) return;
+    
+    // Remover la capa de la lista para calcular el z-index correctamente
+    const layersWithoutCurrent = orderedLayers.filter(l => l.id !== layerId);
     
     // Calcular el nuevo z-index basado en la posición objetivo
     // Las capas que están más arriba en la lista (índice 0) deben tener mayor z-index
@@ -665,14 +691,14 @@ export default class LayerManager {
     
     if (targetIndex === 0) {
       // Mover al principio (arriba en la lista): z-index máximo para renderizarse por encima
-      const maxZIndex = orderedLayers.length > 0 
-        ? Math.max(...orderedLayers.map(l => l.zIndex || 0)) 
+      const maxZIndex = layersWithoutCurrent.length > 0 
+        ? Math.max(...layersWithoutCurrent.map(l => l.zIndex || 0)) 
         : 0;
       newZIndex = maxZIndex + 1;
-    } else if (targetIndex >= orderedLayers.length - 1) {
+    } else if (targetIndex >= layersWithoutCurrent.length) {
       // Mover al final (abajo en la lista): z-index mínimo para renderizarse por debajo
-      const minZIndex = orderedLayers.length > 0 
-        ? Math.min(...orderedLayers.map(l => l.zIndex || 0)) 
+      const minZIndex = layersWithoutCurrent.length > 0 
+        ? Math.min(...layersWithoutCurrent.map(l => l.zIndex || 0)) 
         : 0;
       newZIndex = Math.min(0, minZIndex - 1);
     } else {
@@ -680,16 +706,39 @@ export default class LayerManager {
       // Como la lista está ordenada de mayor a menor z-index:
       // - prevLayer (targetIndex-1) está arriba y tiene mayor z-index
       // - nextLayer (targetIndex) está abajo y tiene menor z-index
-      const prevLayer = orderedLayers[targetIndex - 1];
-      const nextLayer = orderedLayers[targetIndex];
+      const prevLayer = layersWithoutCurrent[targetIndex - 1];
+      const nextLayer = layersWithoutCurrent[targetIndex];
       const prevZIndex = prevLayer?.zIndex || 0;
       const nextZIndex = nextLayer?.zIndex || 0;
       
-      // Si los z-index están muy juntos, usar un incremento fijo
+      // Calcular z-index intermedio
+      // Queremos que la capa se inserte entre prevLayer (arriba) y nextLayer (abajo)
+      // Por lo tanto, el z-index debe ser menor que prevZIndex pero mayor que nextZIndex
       if (Math.abs(prevZIndex - nextZIndex) < 2) {
-        newZIndex = nextZIndex - 1;
+        // Si están muy juntos, usar un incremento fijo
+        // Asegurar que sea menor que prevZIndex y mayor que nextZIndex
+        newZIndex = nextZIndex + 0.5;
+        // Si esto no funciona, usar un valor más bajo
+        if (newZIndex >= prevZIndex) {
+          newZIndex = prevZIndex - 0.5;
+        }
       } else {
-        newZIndex = Math.floor((prevZIndex + nextZIndex) / 2);
+        // Calcular el punto medio
+        newZIndex = (prevZIndex + nextZIndex) / 2;
+      }
+      
+      // Asegurar que el z-index sea diferente de los adyacentes y esté en el rango correcto
+      if (newZIndex >= prevZIndex || newZIndex <= nextZIndex) {
+        // Si no está en el rango correcto, usar un valor intermedio seguro
+        newZIndex = nextZIndex + (prevZIndex - nextZIndex) / 2;
+      }
+      
+      // Asegurar que no sea exactamente igual a ninguno de los adyacentes
+      if (newZIndex === prevZIndex) {
+        newZIndex = prevZIndex - 0.1;
+      }
+      if (newZIndex === nextZIndex) {
+        newZIndex = nextZIndex + 0.1;
       }
     }
     
