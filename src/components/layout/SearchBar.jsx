@@ -1,3 +1,14 @@
+/**
+ * SearchBar - Barra de búsqueda de lugares
+ * 
+ * Permite al usuario buscar lugares usando Nominatim (OpenStreetMap):
+ * - Búsqueda con autocompletado mientras escribe
+ * - Sugerencias de lugares en Argentina
+ * - Centrar el mapa en la ubicación encontrada
+ * - Agregar marcador en la ubicación
+ * - Integración con herramienta de medición (agregar puntos desde búsqueda)
+ */
+
 import React, { useState, useEffect, useRef } from "react";
 import { fromLonLat } from "ol/proj";
 import VectorSource from "ol/source/Vector";
@@ -8,6 +19,14 @@ import { Style, Icon } from "ol/style";
 import Modal from "../common/Modal";
 import "./SearchBar.css";
 
+/**
+ * Componente SearchBar
+ * @param {ol.Map} map - Instancia del mapa de OpenLayers
+ * @param {function} onSearch - Callback cuando se realiza una búsqueda
+ * @param {string} activeTool - Herramienta actualmente activa
+ * @param {string} measureType - Tipo de medición ("length" o "area")
+ * @param {ref} measureToolRef - Referencia a MeasureTool para agregar puntos
+ */
 export default function SearchBar({ map, onSearch, activeTool, measureType, measureToolRef }) {
   const [query, setQuery] = useState("");
   const [isFocused, setIsFocused] = useState(false);
@@ -21,7 +40,9 @@ export default function SearchBar({ map, onSearch, activeTool, measureType, meas
   const suggestionsRef = useRef(null);
   const measurementCheckIntervalRef = useRef(null);
 
-  // Crear capa de marcador
+  /**
+   * Crear capa vectorial para mostrar el marcador de ubicación encontrada
+   */
   useEffect(() => {
     if (!map) return;
 
@@ -76,7 +97,11 @@ export default function SearchBar({ map, onSearch, activeTool, measureType, meas
     }
   }, [query, activeTool, measureToolRef]);
 
-  // Buscar sugerencias usando Nominatim (OpenStreetMap)
+  /**
+   * Busca sugerencias de lugares usando la API de Nominatim (OpenStreetMap)
+   * Limita la búsqueda a Argentina y muestra hasta 5 resultados
+   * @param {string} searchQuery - Texto de búsqueda
+   */
   const searchNominatim = async (searchQuery) => {
     if (!searchQuery.trim()) {
       setSuggestions([]);
