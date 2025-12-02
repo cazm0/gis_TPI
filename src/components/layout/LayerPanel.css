@@ -103,7 +103,10 @@
 /* ===== Lista de capas ===== */
 .layer-item {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   padding: 12px;
   border-radius: 8px;
   cursor: pointer;

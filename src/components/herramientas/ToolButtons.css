@@ -8,6 +8,12 @@
   gap: 8px;
 }
 
+.tool-button-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
 .tool-button {
   display: flex;
   align-items: center;
@@ -60,5 +66,75 @@
   opacity: 1;
   transform: translateX(0);
   width: auto;
+}
+
+.tool-button-content {
+  background: white;
+  border-radius: 8px;
+  padding: 12px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.15);
+  margin-top: 4px;
+  min-width: 200px;
+  animation: slideDown 0.2s ease-out;
+}
+
+.tool-button-content .query-hint-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: #666;
+}
+
+.tool-button-content .query-hint-inline div {
+  line-height: 1.4;
+}
+
+.tool-button-content .draw-tool-controls-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.tool-button-content .geometry-type-selector {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.tool-button-content .geometry-type-selector label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #333;
+}
+
+.tool-button-content .geometry-type-selector select {
+  padding: 6px 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 13px;
+  background: white;
+  cursor: pointer;
+}
+
+.tool-button-content .geometry-type-selector select:hover {
+  border-color: #1a73e8;
+}
+
+.tool-button-content .geometry-type-selector select:focus {
+  outline: none;
+  border-color: #1a73e8;
+  box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.2);
+}
+
+@keyframes slideDown {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 

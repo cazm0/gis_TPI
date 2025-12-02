@@ -13,10 +13,12 @@ import "./DrawTool.css";
 // Cache para tipos de geometría de capas
 const layerGeometryCache = {};
 
-export default function DrawTool({ map, activeTool, layerManager, onToolChange }) {
+export default function DrawTool({ map, activeTool, layerManager, onToolChange, geometryType: propGeometryType, onGeometryTypeChange }) {
   const drawRef = useRef(null);
   const drawLayerRef = useRef(null);
-  const [geometryType, setGeometryType] = useState("Point");
+  const [localGeometryType, setLocalGeometryType] = useState("Point");
+  const geometryType = propGeometryType !== undefined ? propGeometryType : localGeometryType;
+  const setGeometryType = onGeometryTypeChange || setLocalGeometryType;
   const [showDialog, setShowDialog] = useState(false);
   const [drawnFeature, setDrawnFeature] = useState(null);
   const [targetLayer, setTargetLayer] = useState(() => {
@@ -675,22 +677,6 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange }
 
   return (
     <>
-      {activeTool === "draw" && (
-        <div className="draw-tool-controls">
-          <div className="geometry-type-selector">
-            <label>Tipo de geometría:</label>
-            <select
-              value={geometryType}
-              onChange={(e) => setGeometryType(e.target.value)}
-              disabled={showDialog}
-            >
-              <option value="Point">Punto</option>
-              <option value="LineString">Línea</option>
-              <option value="Polygon">Polígono</option>
-            </select>
-          </div>
-        </div>
-      )}
 
       {showDialog && drawnFeature && (
         <div className="draw-dialog-overlay">

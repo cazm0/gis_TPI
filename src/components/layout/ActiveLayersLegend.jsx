@@ -179,8 +179,18 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                     onDragOver={(e) => {
                       e.preventDefault();
                       e.dataTransfer.dropEffect = 'move';
-                      if (draggedLayerId !== layer.id) {
-                        setDragOverIndex(index);
+                      if (draggedLayerId !== layer.id && draggedLayerId) {
+                        const draggedIndex = activeLayers.findIndex(l => l.id === draggedLayerId);
+                        // Mostrar el indicador en la posición correcta
+                        if (draggedIndex !== -1) {
+                          if (draggedIndex < index) {
+                            // Arrastrando hacia abajo: mostrar después del elemento actual
+                            setDragOverIndex(index + 1);
+                          } else {
+                            // Arrastrando hacia arriba: mostrar antes del elemento actual
+                            setDragOverIndex(index);
+                          }
+                        }
                       }
                     }}
                     onDragLeave={(e) => {
@@ -195,12 +205,19 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                       if (draggedId && draggedId !== layer.id) {
                         const currentIndex = activeLayers.findIndex(l => l.id === draggedId);
                         if (currentIndex !== -1) {
-                          // Calcular la posición objetivo
+                          // Calcular la posición objetivo basada en dónde se soltó
+                          // Si se arrastra hacia abajo (currentIndex < index), insertar después del elemento actual
+                          // Si se arrastra hacia arriba (currentIndex > index), insertar antes del elemento actual
                           let targetIndex = index;
                           if (currentIndex < index) {
-                            // Si se arrastra hacia abajo, insertar después del elemento actual
+                            // Arrastrando hacia abajo: insertar después del elemento sobre el que se soltó
                             targetIndex = index + 1;
+                          } else {
+                            // Arrastrando hacia arriba: insertar antes del elemento sobre el que se soltó
+                            targetIndex = index;
                           }
+                          // Asegurar que el índice no exceda el rango
+                          targetIndex = Math.max(0, Math.min(targetIndex, activeLayers.length - 1));
                           layerManager.moveLayerToPosition(draggedId, targetIndex);
                         }
                       }
@@ -286,8 +303,18 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                   onDragOver={(e) => {
                     e.preventDefault();
                     e.dataTransfer.dropEffect = 'move';
-                    if (draggedLayerId !== layer.id) {
-                      setDragOverIndex(index);
+                    if (draggedLayerId !== layer.id && draggedLayerId) {
+                      const draggedIndex = activeLayers.findIndex(l => l.id === draggedLayerId);
+                      // Mostrar el indicador en la posición correcta
+                      if (draggedIndex !== -1) {
+                        if (draggedIndex < index) {
+                          // Arrastrando hacia abajo: mostrar después del elemento actual
+                          setDragOverIndex(index + 1);
+                        } else {
+                          // Arrastrando hacia arriba: mostrar antes del elemento actual
+                          setDragOverIndex(index);
+                        }
+                      }
                     }
                   }}
                   onDragLeave={(e) => {
@@ -302,12 +329,19 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                     if (draggedId && draggedId !== layer.id) {
                       const currentIndex = activeLayers.findIndex(l => l.id === draggedId);
                       if (currentIndex !== -1) {
-                        // Calcular la posición objetivo
+                        // Calcular la posición objetivo basada en dónde se soltó
+                        // Si se arrastra hacia abajo (currentIndex < index), insertar después del elemento actual
+                        // Si se arrastra hacia arriba (currentIndex > index), insertar antes del elemento actual
                         let targetIndex = index;
                         if (currentIndex < index) {
-                          // Si se arrastra hacia abajo, insertar después del elemento actual
+                          // Arrastrando hacia abajo: insertar después del elemento sobre el que se soltó
                           targetIndex = index + 1;
+                        } else {
+                          // Arrastrando hacia arriba: insertar antes del elemento sobre el que se soltó
+                          targetIndex = index;
                         }
+                        // Asegurar que el índice no exceda el rango
+                        targetIndex = Math.max(0, Math.min(targetIndex, activeLayers.length - 1));
                         layerManager.moveLayerToPosition(draggedId, targetIndex);
                       }
                     }

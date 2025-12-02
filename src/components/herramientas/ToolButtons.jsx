@@ -1,7 +1,7 @@
 import React from "react";
 import "./ToolButtons.css";
 
-export default function ToolButtons({ activeTool, onChange }) {
+export default function ToolButtons({ activeTool, onChange, toolContent }) {
   const tools = [
     { id: "measure", icon: "📏", label: "Medir", title: "Medir distancia" },
     { id: "draw", icon: "✏️", label: "Dibujar", title: "Dibujar elemento" },
@@ -17,15 +17,21 @@ export default function ToolButtons({ activeTool, onChange }) {
   return (
     <div className="tool-buttons">
       {tools.map((tool) => (
-        <button
-          key={tool.id}
-          className={`tool-button ${activeTool === tool.id ? "active" : ""}`}
-          onClick={() => handleToggle(tool.id)}
-          title={tool.title}
-        >
-          <span className="tool-icon">{tool.icon}</span>
-          <span className="tool-label">{tool.label}</span>
-        </button>
+        <div key={tool.id} className="tool-button-wrapper">
+          <button
+            className={`tool-button ${activeTool === tool.id ? "active" : ""}`}
+            onClick={() => handleToggle(tool.id)}
+            title={tool.title}
+          >
+            <span className="tool-icon">{tool.icon}</span>
+            <span className="tool-label">{tool.label}</span>
+          </button>
+          {activeTool === tool.id && toolContent && toolContent[tool.id] && (
+            <div className="tool-button-content">
+              {toolContent[tool.id]}
+            </div>
+          )}
+        </div>
       ))}
     </div>
   );

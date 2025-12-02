@@ -189,11 +189,37 @@
   border-top: 1px solid #e0e0e0;
 }
 
+.query-feature-details-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
 .query-feature-details h4 {
-  margin: 0 0 15px 0;
+  margin: 0;
   font-size: 14px;
   color: #333;
   font-weight: 600;
+}
+
+.query-delete-feature-btn {
+  background: #ea4335;
+  color: white;
+  border: none;
+  padding: 6px 12px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  transition: background-color 0.2s ease;
+}
+
+.query-delete-feature-btn:hover {
+  background: #c5221f;
 }
 
 .query-details-content {

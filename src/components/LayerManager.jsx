@@ -543,6 +543,31 @@ export default class LayerManager {
   }
 
   /**
+   * Eliminar una feature específica de una capa de usuario
+   */
+  removeFeatureFromUserLayer(layerId, feature) {
+    if (!this.userLayers[layerId]) {
+      return false;
+    }
+
+    const layer = this.userLayers[layerId];
+    const source = layer.getSource();
+    
+    // Eliminar la feature del source
+    source.removeFeature(feature);
+    
+    // Guardar cambios en localStorage
+    this.saveUserLayers();
+    
+    // Notificar cambio
+    if (this.onChange) {
+      this.onChange();
+    }
+    
+    return true;
+  }
+
+  /**
    * Mueve una capa hacia arriba (aumenta z-index)
    */
   moveLayerUp(layerId) {
@@ -622,29 +647,34 @@ export default class LayerManager {
     const orderedLayers = this.getVisibleLayersOrdered();
     const currentIndex = orderedLayers.findIndex(l => l.id === layerId);
     
-    if (currentIndex === -1 || currentIndex === targetIndex) return;
+    if (currentIndex === -1) return;
+    
+    // Asegurar que el targetIndex esté en el rango válido
+    targetIndex = Math.max(0, Math.min(targetIndex, orderedLayers.length - 1));
+    
+    // Si ya está en la posición objetivo, no hacer nada
+    if (currentIndex === targetIndex) return;
+    
+    const layer = this.layers[layerId] || this.userLayers[layerId];
+    if (!layer) return;
     
     // Calcular el nuevo z-index basado en la posición objetivo
     // Las capas que están más arriba en la lista (índice 0) deben tener mayor z-index
     // para renderizarse por encima de las que están más abajo
+    let newZIndex;
+    
     if (targetIndex === 0) {
       // Mover al principio (arriba en la lista): z-index máximo para renderizarse por encima
       const maxZIndex = orderedLayers.length > 0 
         ? Math.max(...orderedLayers.map(l => l.zIndex || 0)) 
         : 0;
-      const layer = this.layers[layerId] || this.userLayers[layerId];
-      if (layer) {
-        layer.setZIndex(maxZIndex + 1);
-      }
+      newZIndex = maxZIndex + 1;
     } else if (targetIndex >= orderedLayers.length - 1) {
       // Mover al final (abajo en la lista): z-index mínimo para renderizarse por debajo
       const minZIndex = orderedLayers.length > 0 
         ? Math.min(...orderedLayers.map(l => l.zIndex || 0)) 
         : 0;
-      const layer = this.layers[layerId] || this.userLayers[layerId];
-      if (layer) {
-        layer.setZIndex(Math.min(0, minZIndex - 1));
-      }
+      newZIndex = Math.min(0, minZIndex - 1);
     } else {
       // Mover a una posición intermedia: z-index entre las dos capas adyacentes
       // Como la lista está ordenada de mayor a menor z-index:
@@ -654,13 +684,16 @@ export default class LayerManager {
       const nextLayer = orderedLayers[targetIndex];
       const prevZIndex = prevLayer?.zIndex || 0;
       const nextZIndex = nextLayer?.zIndex || 0;
-      const newZIndex = Math.floor((prevZIndex + nextZIndex) / 2);
       
-      const layer = this.layers[layerId] || this.userLayers[layerId];
-      if (layer) {
-        layer.setZIndex(newZIndex);
+      // Si los z-index están muy juntos, usar un incremento fijo
+      if (Math.abs(prevZIndex - nextZIndex) < 2) {
+        newZIndex = nextZIndex - 1;
+      } else {
+        newZIndex = Math.floor((prevZIndex + nextZIndex) / 2);
       }
     }
+    
+    layer.setZIndex(newZIndex);
     
     if (this.onChange) {
       this.onChange();

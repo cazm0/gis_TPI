@@ -25,6 +25,7 @@ export default function MapContainer() {
   const [baseLayer, setBaseLayer] = useState(null);
   const [baseStyle, setBaseStyle] = useState("standard");
   const [activeTool, setActiveTool] = useState(null);
+  const [drawGeometryType, setDrawGeometryType] = useState("Point");
 
   useEffect(() => {
     const view = new View({
@@ -85,10 +86,43 @@ export default function MapContainer() {
             <SearchBar />
             <ZoomControls map={map} />
             <ScaleBar map={map} />
-            <ToolButtons activeTool={activeTool} onChange={setActiveTool} />
-            <MapTools map={map} activeTool={activeTool} />
             <QueryTool map={map} activeTool={activeTool} layerManager={layerManager} />
-            <DrawTool map={map} activeTool={activeTool} layerManager={layerManager} onToolChange={setActiveTool} />
+            <DrawTool 
+              map={map} 
+              activeTool={activeTool} 
+              layerManager={layerManager} 
+              onToolChange={setActiveTool}
+              geometryType={drawGeometryType}
+              onGeometryTypeChange={setDrawGeometryType}
+            />
+            <ToolButtons 
+              activeTool={activeTool} 
+              onChange={setActiveTool}
+              toolContent={{
+                query: activeTool === "query" ? (
+                  <div className="query-hint-inline">
+                    <div>📍 Click izquierdo: Consulta por punto</div>
+                    <div>▭ Click derecho (arrastrar): Consulta por rectángulo</div>
+                  </div>
+                ) : null,
+                draw: activeTool === "draw" ? (
+                  <div className="draw-tool-controls-inline">
+                    <div className="geometry-type-selector">
+                      <label>Tipo de geometría:</label>
+                      <select
+                        value={drawGeometryType}
+                        onChange={(e) => setDrawGeometryType(e.target.value)}
+                      >
+                        <option value="Point">Punto</option>
+                        <option value="LineString">Línea</option>
+                        <option value="Polygon">Polígono</option>
+                      </select>
+                    </div>
+                  </div>
+                ) : null,
+              }}
+            />
+            <MapTools map={map} activeTool={activeTool} />
             <ActiveLayersLegend layerManager={layerManager} update={update} />
             <MapTypeControl activeStyle={baseStyle} onChange={setBaseStyle} />
           </>

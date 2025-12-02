@@ -760,11 +760,6 @@ export default function QueryTool({ map, activeTool, layerManager }) {
 
   return (
     <>
-      <div className="query-hint">
-        <span>📍 Click izquierdo: Consulta por punto</span>
-        <span>▭ Click derecho (arrastrar): Consulta por rectángulo</span>
-      </div>
-      
       {isLoading && (
         <div className="query-loading">
           <div className="query-spinner"></div>
@@ -833,7 +828,57 @@ export default function QueryTool({ map, activeTool, layerManager }) {
 
             {selectedFeature && (
               <div className="query-feature-details">
-                <h4>Detalles del Elemento</h4>
+                <div className="query-feature-details-header">
+                  <h4>Detalles del Elemento</h4>
+                  {selectedFeature.layerName.startsWith('user:') && (
+                    <button
+                      className="query-delete-feature-btn"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (window.confirm('¿Estás seguro de que deseas eliminar este elemento?')) {
+                          const success = layerManager.removeFeatureFromUserLayer(
+                            selectedFeature.layerName,
+                            selectedFeature.feature
+                          );
+                          if (success) {
+                            // Eliminar de los resultados y del highlight
+                            if (highlightLayerRef.current) {
+                              const source = highlightLayerRef.current.getSource();
+                              source.removeFeature(selectedFeature.feature);
+                            }
+                            
+                            // Actualizar resultados
+                            const updatedFeatures = queryResults.features.filter(
+                              item => item.feature !== selectedFeature.feature
+                            );
+                            
+                            // Actualizar contador de capa
+                            const layerDisplayName = selectedFeature.layerName.replace('user:', '');
+                            const updatedLayerResults = { ...queryResults.layerResults };
+                            if (updatedLayerResults[layerDisplayName] > 0) {
+                              updatedLayerResults[layerDisplayName]--;
+                            }
+                            
+                            setQueryResults({
+                              ...queryResults,
+                              features: updatedFeatures,
+                              layerResults: updatedLayerResults,
+                              message: updatedFeatures.length > 0
+                                ? `Se encontraron ${updatedFeatures.length} elemento(s) en el área seleccionada`
+                                : "No se encontraron elementos en el área seleccionada",
+                            });
+                            
+                            // Limpiar selección
+                            setSelectedFeature(null);
+                          }
+                        }
+                      }}
+                      title="Eliminar este elemento"
+                    >
+                      🗑️ Eliminar
+                    </button>
+                  )}
+                </div>
                 <div className="query-details-content">
                   <div className="query-detail-row">
                     <strong>Capa:</strong>
