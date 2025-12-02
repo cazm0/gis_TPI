@@ -67,9 +67,9 @@ export const layersConfig = [
   { id: "gisTPI:Sue_No_Consolidado", title: "Suelo No Consolidado", group: "Suelos", emoji: "🌍", geometryType: "Polygon" },
   { id: "gisTPI:Sue_congelado", title: "Suelo Congelado", group: "Suelos", emoji: "🌍", geometryType: "Polygon" },
   { id: "gisTPI:Sue_consolidado", title: "Suelo Consolidado", group: "Suelos", emoji: "🌍", geometryType: "Polygon" },
-  { id: "gisTPI:Veg_Suelo_Desnudo", title: "Vegetación Suelo Desnudo", group: "Suelos", emoji: "🌍", geometryType: "Polygon" },
-  
+    
   // Vegetación
+  { id: "gisTPI:Veg_Suelo_Desnudo", title: "Vegetación Suelo Desnudo", group: "Vegetación", emoji: "🌍", geometryType: "Polygon" },
   { id: "gisTPI:Veg_Arborea", title: "Vegetación Arbórea", group: "Vegetación", emoji: "🌳", geometryType: "Polygon" },
   { id: "gisTPI:Veg_Arbustiva", title: "Vegetación Arbustiva", group: "Vegetación", emoji: "🌳", geometryType: "Polygon" },
 ];
