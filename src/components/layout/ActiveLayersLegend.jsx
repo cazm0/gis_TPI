@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import LayerStyleEditor from "./LayerStyleEditor";
 import "./ActiveLayersLegend.css";
 
@@ -8,6 +8,8 @@ export default function ActiveLayersLegend({ layerManager, update }) {
   const [editingLayer, setEditingLayer] = useState(null);
   const [draggedLayerId, setDraggedLayerId] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
+  const [isLoadingLegends, setIsLoadingLegends] = useState(false);
+  const loadedLayerIdsRef = useRef(new Set());
 
   // Obtener capas activas ordenadas por z-index
   const activeLayers = useMemo(() => {
@@ -15,23 +17,48 @@ export default function ActiveLayersLegend({ layerManager, update }) {
     return layerManager.getVisibleLayersOrdered();
   }, [layerManager, update]); // update es necesario para re-renderizar cuando cambian las capas visibles
 
-  // Cargar leyendas de capas activas
+  // Crear una clave estable basada en los IDs de las capas (sin orden)
+  const activeLayerIdsKey = useMemo(() => {
+    return activeLayers.map(l => l.id).sort().join(',');
+  }, [activeLayers]);
+
+  // Cargar leyendas de capas activas - solo cuando cambian los IDs de las capas (no el orden)
   useEffect(() => {
     if (!layerManager) {
       setLegends({});
+      setIsLoadingLegends(false);
+      loadedLayerIdsRef.current = new Set();
       return;
     }
     
     // Si no hay capas activas, limpiar leyendas pero no ocultar el componente
     if (activeLayers.length === 0) {
       setLegends({});
+      setIsLoadingLegends(false);
+      loadedLayerIdsRef.current = new Set();
       return;
     }
 
+    // Verificar si hay capas nuevas que necesitan leyendas
+    const currentLayerIds = new Set(activeLayers.map(l => l.id));
+    const newLayers = activeLayers.filter(layer => !loadedLayerIdsRef.current.has(layer.id));
+
+    // Solo cargar si hay capas nuevas
+    if (newLayers.length === 0) {
+      return; // No hacer nada si todas las capas ya tienen leyendas cargadas
+    }
+
     const loadLegends = async () => {
-      const newLegends = {};
+      // Solo poner isLoadingLegends en true si hay capas que realmente necesitan cargar leyendas de GeoServer
+      const needsGeoServerLoading = newLayers.some(layer => !layer.isUserLayer && !legends[layer.id]);
+      if (needsGeoServerLoading) {
+        setIsLoadingLegends(true);
+      }
+      const newLegends = { ...legends }; // Mantener leyendas existentes
       
-      for (const layer of activeLayers) {
+      // Solo cargar leyendas para capas nuevas
+      for (const layer of newLayers) {
+
         if (layer.isUserLayer) {
           // Para capas de usuario, obtener color y opacidad actuales
           const userLayer = layerManager.userLayers[layer.id];
@@ -97,10 +124,14 @@ export default function ActiveLayersLegend({ layerManager, update }) {
       }
 
       setLegends(newLegends);
+      setIsLoadingLegends(false);
+      // Actualizar el conjunto de IDs de capas cargadas
+      loadedLayerIdsRef.current = new Set(activeLayers.map(l => l.id));
     };
 
     loadLegends();
-  }, [activeLayers, layerManager, update]); // Agregar update como dependencia para refrescar cuando cambia el estilo
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeLayerIdsKey, layerManager]); // Solo cuando cambian los IDs de las capas (no el orden)
 
   if (activeLayers.length === 0) {
     return null;
@@ -172,8 +203,12 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                   )}
                   <div 
                     className={`legend-item loading ${isDragging ? 'dragging' : ''}`}
-                    draggable={true}
+                    draggable={!isLoadingLegends}
                     onDragStart={(e) => {
+                      if (isLoadingLegends) {
+                        e.preventDefault();
+                        return;
+                      }
                       setDraggedLayerId(layer.id);
                       e.dataTransfer.effectAllowed = 'move';
                       e.dataTransfer.setData('text/plain', layer.id);
@@ -184,23 +219,29 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                       setDragOverIndex(null);
                       e.currentTarget.style.opacity = '1';
                     }}
-                    onDragOver={(e) => {
+                  onDragOver={(e) => {
+                    if (isLoadingLegends) {
                       e.preventDefault();
-                      e.dataTransfer.dropEffect = 'move';
-                      if (draggedLayerId !== layer.id && draggedLayerId) {
-                        const draggedIndex = activeLayers.findIndex(l => l.id === draggedLayerId);
-                        // Mostrar el indicador en la posición correcta
-                        if (draggedIndex !== -1) {
-                          if (draggedIndex < index) {
-                            // Arrastrando hacia abajo: mostrar después del elemento actual
-                            setDragOverIndex(index + 1);
-                          } else {
-                            // Arrastrando hacia arriba: mostrar antes del elemento actual
-                            setDragOverIndex(index);
-                          }
+                      return;
+                    }
+                    e.preventDefault();
+                    e.dataTransfer.dropEffect = 'move';
+                    if (draggedLayerId !== layer.id && draggedLayerId) {
+                      // Obtener la lista actualizada de capas en cada evento
+                      const currentLayers = layerManager.getVisibleLayersOrdered();
+                      const draggedIndex = currentLayers.findIndex(l => l.id === draggedLayerId);
+                      // Mostrar el indicador en la posición correcta
+                      if (draggedIndex !== -1) {
+                        if (draggedIndex < index) {
+                          // Arrastrando hacia abajo: mostrar después del elemento actual
+                          setDragOverIndex(index + 1);
+                        } else {
+                          // Arrastrando hacia arriba: mostrar antes del elemento actual
+                          setDragOverIndex(index);
                         }
                       }
-                    }}
+                    }
+                  }}
                     onDragLeave={(e) => {
                       // Solo limpiar si realmente salimos del elemento (no solo de un hijo)
                       if (!e.currentTarget.contains(e.relatedTarget)) {
@@ -208,10 +249,16 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                       }
                     }}
                     onDrop={(e) => {
+                      if (isLoadingLegends) {
+                        e.preventDefault();
+                        return;
+                      }
                       e.preventDefault();
                       const draggedId = e.dataTransfer.getData('text/plain');
                       if (draggedId && draggedId !== layer.id) {
-                        const currentIndex = activeLayers.findIndex(l => l.id === draggedId);
+                        // Obtener la lista actualizada de capas antes de calcular índices
+                        const currentLayers = layerManager.getVisibleLayersOrdered();
+                        const currentIndex = currentLayers.findIndex(l => l.id === draggedId);
                         if (currentIndex !== -1) {
                           // Calcular la posición objetivo basada en dónde se soltó
                           // El indicador de drop (dragOverIndex) ya muestra la posición correcta
@@ -229,8 +276,8 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                             }
                           }
                           
-                          // Asegurar que el índice no exceda el rango
-                          targetIndex = Math.max(0, Math.min(targetIndex, activeLayers.length - 1));
+                          // Asegurar que el índice esté en el rango válido (permitir insertar al final)
+                          targetIndex = Math.max(0, Math.min(targetIndex, currentLayers.length));
                           layerManager.moveLayerToPosition(draggedId, targetIndex);
                         }
                       }
@@ -304,8 +351,12 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                 )}
                 <div 
                   className={`legend-item ${isDragging ? 'dragging' : ''}`}
-                  draggable={true}
+                  draggable={!isLoadingLegends}
                   onDragStart={(e) => {
+                    if (isLoadingLegends) {
+                      e.preventDefault();
+                      return;
+                    }
                     setDraggedLayerId(layer.id);
                     e.dataTransfer.effectAllowed = 'move';
                     e.dataTransfer.setData('text/plain', layer.id);
@@ -317,10 +368,16 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                     e.currentTarget.style.opacity = '1';
                   }}
                   onDragOver={(e) => {
+                    if (isLoadingLegends) {
+                      e.preventDefault();
+                      return;
+                    }
                     e.preventDefault();
                     e.dataTransfer.dropEffect = 'move';
                     if (draggedLayerId !== layer.id && draggedLayerId) {
-                      const draggedIndex = activeLayers.findIndex(l => l.id === draggedLayerId);
+                      // Obtener la lista actualizada de capas en cada evento
+                      const currentLayers = layerManager.getVisibleLayersOrdered();
+                      const draggedIndex = currentLayers.findIndex(l => l.id === draggedLayerId);
                       // Mostrar el indicador en la posición correcta
                       if (draggedIndex !== -1) {
                         if (draggedIndex < index) {
@@ -340,10 +397,16 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                     }
                   }}
                   onDrop={(e) => {
+                    if (isLoadingLegends) {
+                      e.preventDefault();
+                      return;
+                    }
                     e.preventDefault();
                     const draggedId = e.dataTransfer.getData('text/plain');
                     if (draggedId && draggedId !== layer.id) {
-                      const currentIndex = activeLayers.findIndex(l => l.id === draggedId);
+                      // Obtener la lista actualizada de capas antes de calcular índices
+                      const currentLayers = layerManager.getVisibleLayersOrdered();
+                      const currentIndex = currentLayers.findIndex(l => l.id === draggedId);
                       if (currentIndex !== -1) {
                         // Usar el dragOverIndex que se calculó en onDragOver
                         let targetIndex;
@@ -351,8 +414,7 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                           targetIndex = dragOverIndex;
                         } else {
                           // Fallback: calcular basado en la posición actual
-                          const draggedIndex = activeLayers.findIndex(l => l.id === draggedId);
-                          if (draggedIndex < index) {
+                          if (currentIndex < index) {
                             targetIndex = index + 1;
                           } else {
                             targetIndex = index;
@@ -361,7 +423,7 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                         
                         // Asegurar que el índice esté en el rango válido
                         // Permitir insertar al final (targetIndex puede ser igual a length)
-                        targetIndex = Math.max(0, Math.min(targetIndex, activeLayers.length));
+                        targetIndex = Math.max(0, Math.min(targetIndex, currentLayers.length));
                         layerManager.moveLayerToPosition(draggedId, targetIndex);
                       }
                     }

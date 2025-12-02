@@ -708,8 +708,22 @@ export default class LayerManager {
       // - nextLayer (targetIndex) está abajo y tiene menor z-index
       const prevLayer = layersWithoutCurrent[targetIndex - 1];
       const nextLayer = layersWithoutCurrent[targetIndex];
-      const prevZIndex = prevLayer?.zIndex || 0;
-      const nextZIndex = nextLayer?.zIndex || 0;
+      
+      if (!prevLayer || !nextLayer) {
+        // Si no hay capas adyacentes válidas, usar un valor por defecto
+        const baseZIndex = layersWithoutCurrent.length > 0 
+          ? (layersWithoutCurrent[0]?.zIndex || 0) 
+          : 0;
+        newZIndex = baseZIndex - targetIndex;
+        layer.setZIndex(newZIndex);
+        if (this.onChange) {
+          this.onChange();
+        }
+        return;
+      }
+      
+      const prevZIndex = prevLayer.zIndex || 0;
+      const nextZIndex = nextLayer.zIndex || 0;
       
       // Calcular z-index intermedio
       // Queremos que la capa se inserte entre prevLayer (arriba) y nextLayer (abajo)

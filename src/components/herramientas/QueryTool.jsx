@@ -22,7 +22,7 @@ export default function QueryTool({ map, activeTool, layerManager }) {
   const startCoordRef = useRef(null);
 
   // Función helper para obtener el nombre de visualización de una capa
-  const getLayerDisplayName = (layerName) => {
+  const getLayerDisplayName = useCallback((layerName) => {
     if (layerName.startsWith('user:')) {
       // Para capas de usuario, obtener el título de la capa
       const userLayer = layerManager?.userLayers?.[layerName];
@@ -56,7 +56,7 @@ export default function QueryTool({ map, activeTool, layerManager }) {
       }
       return layerName.split(':')[1] || layerName;
     }
-  };
+  }, [layerManager]);
 
   // Crear capa para resaltar features seleccionadas
   useEffect(() => {
@@ -119,7 +119,11 @@ export default function QueryTool({ map, activeTool, layerManager }) {
   }, [map]);
 
   // Consultar features de capa de usuario (en memoria)
-  const queryUserLayer = (layerId, coordinate, extent, isPointQuery) => {
+  const queryUserLayer = useCallback((layerId, coordinate, extent, isPointQuery) => {
+    if (!layerManager || !map) {
+      return [];
+    }
+
     const userLayers = layerManager.getUserLayers();
     const userLayer = userLayers[layerId];
     
@@ -162,17 +166,30 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     });
 
     return foundFeatures;
-  };
+  }, [map, layerManager]);
 
   // Consulta WFS por punto (objeto más cercano)
   const queryByPoint = useCallback(async (coordinate) => {
-    const visibleLayers = layerManager.getVisibleLayers();
-    
-    if (visibleLayers.length === 0) {
+    if (!layerManager) {
+      setIsLoading(false);
       setQueryResults({
-        message: "No hay capas visibles para consultar",
+        message: "No hay capas activas para consultar",
         features: [],
       });
+      setSelectedFeature(null);
+      return;
+    }
+
+    const visibleLayers = layerManager.getVisibleLayers();
+    
+    if (!visibleLayers || visibleLayers.length === 0) {
+      setIsLoading(false);
+      setQueryResults({
+        message: "No hay capas activas para consultar",
+        features: [],
+        layerResults: {},
+      });
+      setSelectedFeature(null);
       return;
     }
 
@@ -389,31 +406,45 @@ export default function QueryTool({ map, activeTool, layerManager }) {
 
       setQueryResults({
         message: allFeatures.length > 0
-          ? `Se encontraron ${allFeatures.length} elemento(s) más cercano(s) en ${Object.keys(layerResults).filter(k => layerResults[k] === 1).length} capa(s)`
+          ? `Se encontraron ${allFeatures.length} elemento(s) más cercano(s) en ${Object.keys(layerResults || {}).filter(k => layerResults[k] === 1).length} capa(s)`
           : "No se encontraron elementos cerca del punto seleccionado",
         features: allFeatures,
-        layerResults,
+        layerResults: layerResults || {},
       });
     } catch (error) {
       console.error("Error en consulta WFS:", error);
       setQueryResults({
         message: `Error al consultar: ${error.message}`,
         features: [],
+        layerResults: {},
       });
     } finally {
       setIsLoading(false);
     }
-  }, [map, layerManager, getLayerDisplayName]);
+  }, [map, layerManager, getLayerDisplayName, queryUserLayer]);
 
   // Consulta WFS por rectángulo (todos los objetos que intersecten)
   const queryByRectangle = useCallback(async (extent) => {
-    const visibleLayers = layerManager.getVisibleLayers();
-    
-    if (visibleLayers.length === 0) {
+    if (!layerManager) {
+      setIsLoading(false);
       setQueryResults({
-        message: "No hay capas visibles para consultar",
+        message: "No hay capas activas para consultar",
         features: [],
       });
+      setSelectedFeature(null);
+      return;
+    }
+
+    const visibleLayers = layerManager.getVisibleLayers();
+    
+    if (!visibleLayers || visibleLayers.length === 0) {
+      setIsLoading(false);
+      setQueryResults({
+        message: "No hay capas activas para consultar",
+        features: [],
+        layerResults: {},
+      });
+      setSelectedFeature(null);
       return;
     }
 
@@ -565,11 +596,12 @@ export default function QueryTool({ map, activeTool, layerManager }) {
       setQueryResults({
         message: `Error al consultar: ${error.message}`,
         features: [],
+        layerResults: {},
       });
     } finally {
       setIsLoading(false);
     }
-  }, [map, layerManager]);
+  }, [map, layerManager, getLayerDisplayName, queryUserLayer]);
 
   // Manejar la herramienta de consulta
   useEffect(() => {
@@ -888,7 +920,7 @@ export default function QueryTool({ map, activeTool, layerManager }) {
                             
                             // Actualizar contador de capa
                             const layerDisplayName = selectedFeature.layerDisplayName || getLayerDisplayName(selectedFeature.layerName);
-                            const updatedLayerResults = { ...queryResults.layerResults };
+                            const updatedLayerResults = { ...(queryResults.layerResults || {}) };
                             if (updatedLayerResults[layerDisplayName] > 0) {
                               updatedLayerResults[layerDisplayName]--;
                             }
@@ -951,7 +983,7 @@ export default function QueryTool({ map, activeTool, layerManager }) {
               </div>
             )}
 
-            {Object.keys(queryResults.layerResults).length > 0 && (
+            {queryResults.layerResults && Object.keys(queryResults.layerResults).length > 0 && (
               <div className="query-layer-summary">
                 <h4>Resumen por Capa:</h4>
                 <ul>
