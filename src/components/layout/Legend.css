@@ -1,0 +1,135 @@
+.legend-toggle-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 4px 8px;
+  margin-left: 8px;
+  border-radius: 4px;
+  transition: background 0.2s;
+  color: #333;
+}
+
+.legend-toggle-btn:hover {
+  background: #f0f0f0;
+}
+
+.legend-container {
+  margin-top: 8px;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  background: white;
+  overflow: hidden;
+}
+
+.legend-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: #f5f5f5;
+  border-bottom: 1px solid #ddd;
+}
+
+.legend-title {
+  font-weight: 600;
+  font-size: 13px;
+  color: #333;
+}
+
+.legend-close-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 2px 6px;
+  color: #666;
+  border-radius: 3px;
+  transition: background 0.2s;
+}
+
+.legend-close-btn:hover {
+  background: #e0e0e0;
+  color: #333;
+}
+
+.legend-content {
+  padding: 12px;
+  max-height: 300px;
+  overflow-y: auto;
+}
+
+.legend-loading,
+.legend-error,
+.legend-no-data {
+  text-align: center;
+  padding: 20px;
+  color: #666;
+  font-size: 13px;
+}
+
+.legend-error {
+  color: #d32f2f;
+}
+
+.legend-image-container {
+  display: flex;
+  justify-content: center;
+  align-items: flex-start;
+}
+
+.legend-image {
+  max-width: 100%;
+  height: auto;
+  display: block;
+}
+
+.legend-user-layer {
+  font-size: 13px;
+}
+
+.legend-user-layer p {
+  margin: 0 0 12px 0;
+  color: #666;
+  font-size: 12px;
+}
+
+.legend-simple {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.legend-symbol {
+  width: 20px;
+  height: 20px;
+  border-radius: 3px;
+  border: 1px solid #ccc;
+  flex-shrink: 0;
+}
+
+/* Scrollbar personalizado para el contenido de la leyenda */
+.legend-content::-webkit-scrollbar {
+  width: 6px;
+}
+
+.legend-content::-webkit-scrollbar-track {
+  background: #f1f1f1;
+  border-radius: 3px;
+}
+
+.legend-content::-webkit-scrollbar-thumb {
+  background: #888;
+  border-radius: 3px;
+}
+
+.legend-content::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+

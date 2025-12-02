@@ -251,29 +251,14 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange }
     }
   };
 
-  // Obtener capas visibles filtradas por tipo de geometría (incluyendo capas de usuario)
+  // Obtener capas visibles filtradas por tipo de geometría (solo capas de usuario)
   const getVisibleLayersForSelection = async () => {
     if (!layerManager) return [];
     
-    const visible = [];
-    const geometryTypes = {};
-    
-    // Primero obtener todas las capas visibles de GeoServer
+    // Solo obtener capas de usuario visibles
     const allVisible = [];
-    Object.keys(layerManager.layers || {}).forEach((id) => {
-      if (layerManager.getVisible(id)) {
-        const layerName = layerManager.getActiveLayerName(id);
-        allVisible.push({
-          id,
-          name: layerName,
-          displayName: id.split(':')[1] || layerName,
-          isUserLayer: false,
-        });
-      }
-    });
-
-    // Agregar capas de usuario visibles
     const userLayers = layerManager.getUserLayers();
+    
     Object.keys(userLayers).forEach((layerId) => {
       const layer = userLayers[layerId];
       if (layer.getVisible()) {
@@ -285,29 +270,12 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange }
           isUserLayer: true,
           geometryType: layerGeomType, // Ya tenemos el tipo de geometría
         });
-        // Guardar el tipo de geometría directamente
-        if (layerGeomType) {
-          geometryTypes[layerId] = layerGeomType;
-        }
       }
     });
 
-    // Obtener tipos de geometría para capas de GeoServer (las de usuario ya las tenemos)
-    for (const layer of allVisible) {
-      if (!layer.isUserLayer && !geometryTypes[layer.name]) {
-        const geomType = await getLayerGeometryType(layer.name);
-        if (geomType) {
-          geometryTypes[layer.name] = geomType;
-        }
-      }
-    }
-
     // Filtrar por tipo de geometría que coincide con el dibujado
     const filtered = allVisible.filter(layer => {
-      const layerGeomType = layer.isUserLayer 
-        ? layer.geometryType 
-        : geometryTypes[layer.name];
-      return layerGeomType === geometryType;
+      return layer.geometryType === geometryType;
     });
 
     return filtered;

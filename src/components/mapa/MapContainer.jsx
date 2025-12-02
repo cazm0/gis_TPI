@@ -15,6 +15,7 @@ import MapTypeControl from "../herramientas/MapTypeControl";
 import MapTools from "../herramientas/MapTools";
 import QueryTool from "../herramientas/QueryTool";
 import DrawTool from "../herramientas/DrawTool";
+import ActiveLayersLegend from "../layout/ActiveLayersLegend";
 
 export default function MapContainer() {
   const mapRef = useRef();
@@ -88,6 +89,7 @@ export default function MapContainer() {
             <MapTools map={map} activeTool={activeTool} />
             <QueryTool map={map} activeTool={activeTool} layerManager={layerManager} />
             <DrawTool map={map} activeTool={activeTool} layerManager={layerManager} onToolChange={setActiveTool} />
+            <ActiveLayersLegend layerManager={layerManager} update={update} />
             <MapTypeControl activeStyle={baseStyle} onChange={setBaseStyle} />
           </>
         )}

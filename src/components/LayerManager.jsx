@@ -2,7 +2,6 @@ import ImageLayer from "ol/layer/Image";
 import ImageWMS from "ol/source/ImageWMS";
 import VectorLayer from "ol/layer/Vector";
 import VectorSource from "ol/source/Vector";
-import Feature from "ol/Feature";
 import { GeoJSON } from "ol/format";
 import { Style, Stroke, Fill, Circle as CircleStyle } from "ol/style";
 import { URL_OGC } from "../config";
@@ -226,6 +225,90 @@ export default class LayerManager {
   }
 
   /**
+   * Cambiar opacidad de una capa WMS
+   */
+  setLayerOpacity(layerId, opacity) {
+    const layer = this.layers[layerId];
+    if (layer) {
+      layer.setOpacity(opacity);
+      if (this.onChange) {
+        this.onChange();
+      }
+    }
+  }
+
+  /**
+   * Cambiar estilo de una capa de usuario (color y opacidad)
+   */
+  setUserLayerStyle(layerId, color, opacity) {
+    const userLayer = this.userLayers[layerId];
+    if (!userLayer) return;
+
+    // Convertir color a formato rgba si es necesario
+    let fillColor = color;
+    if (color.startsWith('#')) {
+      // Convertir hex a rgba
+      const hex = color.replace('#', '');
+      const r = parseInt(hex.substring(0, 2), 16);
+      const g = parseInt(hex.substring(2, 4), 16);
+      const b = parseInt(hex.substring(4, 6), 16);
+      fillColor = [r, g, b, Math.round(opacity * 255)];
+    } else if (color.startsWith('rgba')) {
+      // Extraer valores rgba y actualizar opacidad
+      const rgbaMatch = color.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)(?:,\s*[\d.]+)?\)/);
+      if (rgbaMatch) {
+        fillColor = [parseInt(rgbaMatch[1]), parseInt(rgbaMatch[2]), parseInt(rgbaMatch[3]), Math.round(opacity * 255)];
+      }
+    }
+
+    // Obtener tipo de geometría
+    const geometryType = userLayer.get('geometryType') || 'Point';
+
+    // Crear nuevo estilo
+    let style;
+    if (geometryType === 'Point') {
+      style = new Style({
+        image: new CircleStyle({
+          radius: 6,
+          fill: new Fill({ color: fillColor }),
+          stroke: new Stroke({ color: '#fff', width: 2 }),
+        }),
+      });
+    } else if (geometryType === 'LineString') {
+      style = new Style({
+        stroke: new Stroke({
+          color: fillColor,
+          width: 3,
+        }),
+      });
+    } else {
+      // Polygon
+      style = new Style({
+        fill: new Fill({ color: fillColor }),
+        stroke: new Stroke({
+          color: '#fff',
+          width: 2,
+        }),
+      });
+    }
+
+    // Aplicar estilo a la capa
+    userLayer.setStyle(style);
+    userLayer.setOpacity(opacity);
+
+    // Guardar estilo en metadata de la capa
+    userLayer.set('customColor', color);
+    userLayer.set('customOpacity', opacity);
+
+    // Guardar en localStorage
+    this.saveUserLayers();
+
+    if (this.onChange) {
+      this.onChange();
+    }
+  }
+
+  /**
    * Cargar capas de usuario desde localStorage
    */
   loadUserLayers() {
@@ -277,6 +360,8 @@ export default class LayerManager {
           title: layer.get('title') || layerId.replace('user:', ''),
           geometryType: layer.get('geometryType') || 'Point',
           attributes: layer.get('attributes') || [], // Guardar esquema de atributos
+          customColor: layer.get('customColor'), // Guardar color personalizado
+          customOpacity: layer.get('customOpacity'), // Guardar opacidad personalizada
           features: featuresArray,
         };
       });
@@ -365,6 +450,23 @@ export default class LayerManager {
     // Hacer la capa visible por defecto
     layer.setVisible(true);
 
+    // Cargar estilo personalizado si existe
+    const storedData = localStorage.getItem('userLayers');
+    if (storedData) {
+      try {
+        const userLayersData = JSON.parse(storedData);
+        const layerData = userLayersData[layerId];
+        if (layerData && (layerData.customColor || layerData.customOpacity !== undefined)) {
+          // Aplicar estilo guardado
+          const savedColor = layerData.customColor || '#ff6b6b';
+          const savedOpacity = layerData.customOpacity !== undefined ? layerData.customOpacity : 1;
+          this.setUserLayerStyle(layerId, savedColor, savedOpacity);
+        }
+      } catch (error) {
+        console.error('Error cargando estilo personalizado:', error);
+      }
+    }
+
     // Guardar en localStorage
     this.saveUserLayers();
 
@@ -438,5 +540,130 @@ export default class LayerManager {
     });
 
     return geoJSON;
+  }
+
+  /**
+   * Mueve una capa hacia arriba (aumenta z-index)
+   */
+  moveLayerUp(layerId) {
+    const layer = this.layers[layerId] || this.userLayers[layerId];
+    if (!layer) return;
+
+    const currentZIndex = layer.getZIndex() || 0;
+    layer.setZIndex(currentZIndex + 1);
+    
+    if (this.onChange) {
+      this.onChange();
+    }
+  }
+
+  /**
+   * Mueve una capa hacia abajo (disminuye z-index)
+   */
+  moveLayerDown(layerId) {
+    const layer = this.layers[layerId] || this.userLayers[layerId];
+    if (!layer) return;
+
+    const currentZIndex = layer.getZIndex() || 0;
+    layer.setZIndex(Math.max(0, currentZIndex - 1));
+    
+    if (this.onChange) {
+      this.onChange();
+    }
+  }
+
+  /**
+   * Obtiene el z-index actual de una capa
+   */
+  getLayerZIndex(layerId) {
+    const layer = this.layers[layerId] || this.userLayers[layerId];
+    if (!layer) return 0;
+    return layer.getZIndex() || 0;
+  }
+
+  /**
+   * Obtiene todas las capas visibles ordenadas por z-index (de menor a mayor)
+   */
+  getVisibleLayersOrdered() {
+    const visible = [];
+    Object.keys(this.layers).forEach((id) => {
+      if (this.getVisible(id)) {
+        visible.push({
+          id,
+          name: this.activeLayerNames[id] || id,
+          displayName: id.split(':')[1] || this.activeLayerNames[id] || id,
+          isUserLayer: false,
+          zIndex: this.getLayerZIndex(id)
+        });
+      }
+    });
+    Object.keys(this.userLayers).forEach((id) => {
+      if (this.getVisible(id)) {
+        const layer = this.userLayers[id];
+        visible.push({
+          id,
+          name: id,
+          displayName: layer.get('title') || id.replace('user:', ''),
+          isUserLayer: true,
+          geometryType: layer.get('geometryType') || 'Point',
+          zIndex: this.getLayerZIndex(id)
+        });
+      }
+    });
+    // Ordenar por z-index (mayor a menor) para mostrar en la leyenda
+    // Las que están más arriba en la lista (índice 0) deben tener mayor z-index para renderizarse por encima
+    return visible.sort((a, b) => b.zIndex - a.zIndex);
+  }
+
+  /**
+   * Mueve una capa a una posición específica en el orden (basado en índice)
+   */
+  moveLayerToPosition(layerId, targetIndex) {
+    const orderedLayers = this.getVisibleLayersOrdered();
+    const currentIndex = orderedLayers.findIndex(l => l.id === layerId);
+    
+    if (currentIndex === -1 || currentIndex === targetIndex) return;
+    
+    // Calcular el nuevo z-index basado en la posición objetivo
+    // Las capas que están más arriba en la lista (índice 0) deben tener mayor z-index
+    // para renderizarse por encima de las que están más abajo
+    if (targetIndex === 0) {
+      // Mover al principio (arriba en la lista): z-index máximo para renderizarse por encima
+      const maxZIndex = orderedLayers.length > 0 
+        ? Math.max(...orderedLayers.map(l => l.zIndex || 0)) 
+        : 0;
+      const layer = this.layers[layerId] || this.userLayers[layerId];
+      if (layer) {
+        layer.setZIndex(maxZIndex + 1);
+      }
+    } else if (targetIndex >= orderedLayers.length - 1) {
+      // Mover al final (abajo en la lista): z-index mínimo para renderizarse por debajo
+      const minZIndex = orderedLayers.length > 0 
+        ? Math.min(...orderedLayers.map(l => l.zIndex || 0)) 
+        : 0;
+      const layer = this.layers[layerId] || this.userLayers[layerId];
+      if (layer) {
+        layer.setZIndex(Math.min(0, minZIndex - 1));
+      }
+    } else {
+      // Mover a una posición intermedia: z-index entre las dos capas adyacentes
+      // Como la lista está ordenada de mayor a menor z-index:
+      // - prevLayer (targetIndex-1) está arriba y tiene mayor z-index
+      // - nextLayer (targetIndex) está abajo y tiene menor z-index
+      const prevLayer = orderedLayers[targetIndex - 1];
+      const nextLayer = orderedLayers[targetIndex];
+      const prevZIndex = prevLayer?.zIndex || 0;
+      const nextZIndex = nextLayer?.zIndex || 0;
+      const newZIndex = Math.floor((prevZIndex + nextZIndex) / 2);
+      
+      const layer = this.layers[layerId] || this.userLayers[layerId];
+      if (layer) {
+        layer.setZIndex(newZIndex);
+      }
+    }
+    
+    if (this.onChange) {
+      this.onChange();
+    }
   }
 }

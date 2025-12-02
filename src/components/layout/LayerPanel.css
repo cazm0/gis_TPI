@@ -103,8 +103,7 @@
 /* ===== Lista de capas ===== */
 .layer-item {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
   padding: 12px;
   border-radius: 8px;
   cursor: pointer;
@@ -117,6 +116,14 @@
   align-items: center;
   flex: 1;
   min-width: 0;
+}
+
+.layer-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  margin-top: 8px;
+  margin-left: 32px;
 }
 
 .layer-item:hover {
