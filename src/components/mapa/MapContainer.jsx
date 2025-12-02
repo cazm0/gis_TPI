@@ -15,6 +15,7 @@ import MapTypeControl from "../herramientas/MapTypeControl";
 import MapTools from "../herramientas/MapTools";
 import QueryTool from "../herramientas/QueryTool";
 import DrawTool from "../herramientas/DrawTool";
+import PrintTool from "../herramientas/PrintTool";
 import ActiveLayersLegend from "../layout/ActiveLayersLegend";
 
 export default function MapContainer() {
@@ -66,7 +67,8 @@ export default function MapContainer() {
 
     const newBase = BaseMap(map, baseStyle);
     setBaseLayer(newBase);
-  }, [baseStyle, map]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [baseStyle, map]); // baseLayer se excluye intencionalmente para evitar loop infinito
 
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
@@ -123,6 +125,7 @@ export default function MapContainer() {
               }}
             />
             <MapTools map={map} activeTool={activeTool} />
+            <PrintTool map={map} layerManager={layerManager} activeTool={activeTool} />
             <ActiveLayersLegend layerManager={layerManager} update={update} />
             <MapTypeControl activeStyle={baseStyle} onChange={setBaseStyle} />
           </>

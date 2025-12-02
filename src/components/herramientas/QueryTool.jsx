@@ -421,7 +421,8 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     } finally {
       setIsLoading(false);
     }
-  }, [map, layerManager, getLayerDisplayName, queryUserLayer]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layerManager, getLayerDisplayName, queryUserLayer]); // map se usa indirectamente a través de queryUserLayer
 
   // Consulta WFS por rectángulo (todos los objetos que intersecten)
   const queryByRectangle = useCallback(async (extent) => {
@@ -601,7 +602,8 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     } finally {
       setIsLoading(false);
     }
-  }, [map, layerManager, getLayerDisplayName, queryUserLayer]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [layerManager, getLayerDisplayName, queryUserLayer]); // map no se usa directamente en este callback
 
   // Manejar la herramienta de consulta
   useEffect(() => {
