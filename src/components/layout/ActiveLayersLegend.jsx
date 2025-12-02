@@ -1,7 +1,25 @@
+/**
+ * ActiveLayersLegend - Leyenda de capas activas
+ * 
+ * Muestra una lista de todas las capas visibles con sus leyendas:
+ * - Para capas de GeoServer: carga la leyenda desde GetLegendGraphic
+ * - Para capas de usuario: muestra un símbolo con el color personalizado
+ * 
+ * Permite:
+ * - Reordenar capas arrastrando y soltando (drag & drop)
+ * - Editar color y opacidad de capas (click en la capa)
+ * - Expandir/colapsar la leyenda
+ */
+
 import React, { useState, useEffect, useMemo, useRef } from "react";
 import LayerStyleEditor from "./LayerStyleEditor";
 import "./ActiveLayersLegend.css";
 
+/**
+ * Componente ActiveLayersLegend
+ * @param {LayerManager} layerManager - Gestor de capas
+ * @param {number} update - Contador de actualización para forzar re-render
+ */
 export default function ActiveLayersLegend({ layerManager, update }) {
   const [isExpanded, setIsExpanded] = useState(true);
   const [legends, setLegends] = useState({});

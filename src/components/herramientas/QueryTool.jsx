@@ -1,3 +1,14 @@
+/**
+ * QueryTool - Herramienta para consultar información de features en el mapa
+ * 
+ * Permite al usuario:
+ * - Consultar por punto: Click izquierdo para encontrar el objeto más cercano
+ * - Consultar por rectángulo: Click derecho y arrastrar para seleccionar un área
+ * 
+ * Consulta tanto capas de GeoServer (usando WFS) como capas de usuario (en memoria)
+ * Muestra resultados con atributos y permite seleccionar features para ver detalles
+ */
+
 import { useEffect, useRef, useState, useCallback } from "react";
 import VectorSource from "ol/source/Vector";
 import VectorLayer from "ol/layer/Vector";
@@ -6,11 +17,17 @@ import { Style, Stroke, Fill, Circle as CircleStyle } from "ol/style";
 import { GeoJSON } from "ol/format";
 import { toLonLat } from "ol/proj";
 import { Point, Polygon } from "ol/geom";
-// Removido getDistance - usamos distancia euclidiana en coordenadas del mapa
+// Nota: Usamos distancia euclidiana en coordenadas del mapa en lugar de getDistance
 import { URL_WFS } from "../../config";
 import { layersConfig } from "../../layers";
 import "./QueryTool.css";
 
+/**
+ * Componente QueryTool
+ * @param {ol.Map} map - Instancia del mapa de OpenLayers
+ * @param {string} activeTool - Herramienta actualmente activa (debe ser "query" para activarse)
+ * @param {LayerManager} layerManager - Gestor de capas
+ */
 export default function QueryTool({ map, activeTool, layerManager }) {
   const drawRef = useRef(null);
   const highlightLayerRef = useRef(null);
@@ -22,7 +39,13 @@ export default function QueryTool({ map, activeTool, layerManager }) {
   const isDrawingRef = useRef(false);
   const startCoordRef = useRef(null);
 
-  // Función helper para obtener el nombre de visualización de una capa
+  /**
+   * Obtiene el nombre de visualización legible de una capa
+   * Para capas de usuario, obtiene el título guardado
+   * Para capas de GeoServer, busca en la configuración
+   * @param {string} layerName - Nombre de la capa (formato "workspace:layerName" o "user:layerName")
+   * @returns {string} Nombre legible para mostrar
+   */
   const getLayerDisplayName = useCallback((layerName) => {
     if (layerName.startsWith('user:')) {
       // Para capas de usuario, obtener el título de la capa
@@ -59,7 +82,12 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     }
   }, [layerManager]);
 
-  // Crear capa para resaltar features seleccionadas
+  /**
+   * Crear capas para visualización:
+   * - highlightLayer: Resalta todas las features encontradas (rojo)
+   * - selectedFeatureLayer: Resalta la feature seleccionada (azul, más destacado)
+   * - drawLayer: Muestra el rectángulo de consulta mientras se dibuja
+   */
   useEffect(() => {
     if (!map) return;
 
@@ -150,7 +178,14 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     };
   }, [map]);
 
-  // Consultar features de capa de usuario (en memoria)
+  /**
+   * Consulta features en una capa de usuario (en memoria)
+   * @param {string} layerId - ID de la capa de usuario
+   * @param {Array<number>} coordinate - Coordenada del punto (para consulta por punto)
+   * @param {Array<number>} extent - Extent del rectángulo [minX, minY, maxX, maxY] (para consulta por rectángulo)
+   * @param {boolean} isPointQuery - true para consulta por punto, false para rectángulo
+   * @returns {Array<ol.Feature>} Array de features encontradas
+   */
   const queryUserLayer = useCallback((layerId, coordinate, extent, isPointQuery) => {
     if (!layerManager || !map) {
       return [];
@@ -200,7 +235,11 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     return foundFeatures;
   }, [map, layerManager]);
 
-  // Consulta WFS por punto (objeto más cercano)
+  /**
+   * Consulta por punto: encuentra el objeto más cercano al punto clickeado
+   * Consulta todas las capas visibles y retorna el objeto más cercano de cada capa
+   * @param {Array<number>} coordinate - Coordenada del punto en EPSG:3857
+   */
   const queryByPoint = useCallback(async (coordinate) => {
     if (!layerManager) {
       setIsLoading(false);
@@ -456,7 +495,11 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layerManager, getLayerDisplayName, queryUserLayer]); // map se usa indirectamente a través de queryUserLayer
 
-  // Consulta WFS por rectángulo (todos los objetos que intersecten)
+  /**
+   * Consulta por rectángulo: encuentra todos los objetos que intersectan con el área seleccionada
+   * Consulta todas las capas visibles y retorna todos los objetos dentro del rectángulo
+   * @param {Array<number>} extent - Extent del rectángulo [minX, minY, maxX, maxY] en EPSG:3857
+   */
   const queryByRectangle = useCallback(async (extent) => {
     if (!layerManager) {
       setIsLoading(false);
@@ -637,7 +680,10 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layerManager, getLayerDisplayName, queryUserLayer]); // map no se usa directamente en este callback
 
-  // Manejar la herramienta de consulta
+  /**
+   * Manejar la activación/desactivación de la herramienta de consulta
+   * Configura los event listeners para click izquierdo (punto) y click derecho (rectángulo)
+   */
   useEffect(() => {
     if (!map || !layerManager || activeTool !== "query") {
       if (drawRef.current) {
@@ -796,7 +842,10 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     };
   }, [activeTool, map, layerManager, queryByPoint, queryByRectangle]);
 
-  // Manejar selección de feature para mostrar detalles
+  /**
+   * Maneja la selección de features para mostrar detalles
+   * Cuando el usuario hace click en una feature resaltada, muestra sus atributos
+   */
   useEffect(() => {
     if (!map || activeTool !== "query" || isDrawingRef.current) return;
 

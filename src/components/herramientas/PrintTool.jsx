@@ -1,9 +1,27 @@
+/**
+ * PrintTool - Herramienta para exportar el mapa a PDF
+ * 
+ * Permite al usuario:
+ * - Configurar formato de papel (A4, A3, Letter)
+ * - Elegir orientación (horizontal/vertical)
+ * - Incluir/excluir título, leyenda y escala gráfica
+ * - Generar y descargar un PDF con el mapa
+ * 
+ * Captura el mapa, leyenda y escala como imágenes y las combina en un PDF
+ */
+
 import React, { useState } from "react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import Modal from "../common/Modal";
 import "./PrintTool.css";
 
+/**
+ * Componente PrintTool
+ * @param {ol.Map} map - Instancia del mapa de OpenLayers
+ * @param {LayerManager} layerManager - Gestor de capas
+ * @param {string} activeTool - Herramienta actualmente activa (debe ser "print" para activarse)
+ */
 export default function PrintTool({ map, layerManager, activeTool }) {
   const [isPrinting, setIsPrinting] = useState(false);
   const [printSettings, setPrintSettings] = useState({
@@ -17,6 +35,11 @@ export default function PrintTool({ map, layerManager, activeTool }) {
   const [modal, setModal] = useState({ isOpen: false, message: "", type: "info", title: "" });
 
 
+  /**
+   * Captura el mapa como imagen usando html2canvas
+   * Oculta los controles durante la captura para obtener una imagen limpia
+   * @returns {Promise<HTMLCanvasElement>} Canvas con la imagen del mapa
+   */
   const getMapImage = async () => {
     if (!map) {
       throw new Error("Mapa no disponible");
@@ -106,6 +129,10 @@ export default function PrintTool({ map, layerManager, activeTool }) {
     }
   };
 
+  /**
+   * Captura la leyenda de capas activas como imagen
+   * @returns {Promise<HTMLCanvasElement|null>} Canvas con la imagen de la leyenda o null
+   */
   const getLegendImage = async () => {
     if (!printSettings.includeLegend) {
       return null;
@@ -157,6 +184,10 @@ export default function PrintTool({ map, layerManager, activeTool }) {
     }
   };
 
+  /**
+   * Captura la barra de escala como imagen
+   * @returns {Promise<HTMLCanvasElement|null>} Canvas con la imagen de la escala o null
+   */
   const getScaleBarImage = async () => {
     if (!printSettings.includeScale) {
       return null;
@@ -193,6 +224,10 @@ export default function PrintTool({ map, layerManager, activeTool }) {
     }
   };
 
+  /**
+   * Genera el PDF combinando el mapa, leyenda y escala
+   * Calcula las dimensiones y posiciones de cada elemento según el formato seleccionado
+   */
   const generatePDF = async () => {
     if (!map) {
       setModal({ isOpen: true, message: "Mapa no disponible", type: "error", title: "Error" });

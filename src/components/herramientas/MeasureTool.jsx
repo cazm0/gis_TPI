@@ -1,3 +1,14 @@
+/**
+ * MeasureTool - Herramienta para medir distancias y áreas en el mapa
+ * 
+ * Permite al usuario:
+ * - Medir distancias (longitud de líneas)
+ * - Medir áreas (superficie de polígonos)
+ * 
+ * Muestra tooltips con las mediciones en tiempo real mientras se dibuja
+ * y permite agregar puntos desde la barra de búsqueda.
+ */
+
 import { useEffect, useRef, useImperativeHandle, forwardRef } from "react";
 import VectorSource from "ol/source/Vector";
 import VectorLayer from "ol/layer/Vector";
@@ -10,6 +21,14 @@ import Feature from "ol/Feature";
 import { LineString, Polygon } from "ol/geom";
 import "./MeasureTool.css";
 
+/**
+ * Componente MeasureTool (con forwardRef para exponer métodos al componente padre)
+ * @param {ol.Map} map - Instancia del mapa de OpenLayers
+ * @param {string} activeTool - Herramienta actualmente activa (debe ser "measure" para activarse)
+ * @param {string} propMeasureType - Tipo de medición: "length" o "area"
+ * @param {function} onMeasureTypeChange - Callback cuando cambia el tipo de medición
+ * @param {ref} ref - Referencia para exponer métodos (addPoint, clearMeasurement, etc.)
+ */
 const MeasureTool = forwardRef(function MeasureTool({ map, activeTool, measureType: propMeasureType, onMeasureTypeChange }, ref) {
   const drawRef = useRef(null);
   const measureLayerRef = useRef(null);
@@ -18,7 +37,10 @@ const MeasureTool = forwardRef(function MeasureTool({ map, activeTool, measureTy
   const currentFeatureRef = useRef(null);
   const measureType = propMeasureType !== undefined ? propMeasureType : "length";
 
-  // Crear capa para las mediciones
+  /**
+   * Crear capa vectorial para mostrar las mediciones en el mapa
+   * Las mediciones se dibujan como features temporales
+   */
   useEffect(() => {
     if (!map) return;
 
@@ -56,7 +78,10 @@ const MeasureTool = forwardRef(function MeasureTool({ map, activeTool, measureTy
     };
   }, [map]);
 
-  // Manejar herramienta de medición
+  /**
+   * Manejar la activación/desactivación de la herramienta de medición
+   * Crea la interacción de dibujo y los tooltips para mostrar las mediciones
+   */
   useEffect(() => {
     if (!map || !measureLayerRef.current || activeTool !== "measure") {
       if (drawRef.current) {
@@ -385,8 +410,16 @@ const MeasureTool = forwardRef(function MeasureTool({ map, activeTool, measureTy
     };
   }, [map, activeTool, measureType]);
 
-  // Exponer función para agregar puntos desde búsqueda
+  /**
+   * Expone métodos al componente padre mediante useImperativeHandle
+   * Permite que otros componentes (como SearchBar) agreguen puntos a la medición
+   */
   useImperativeHandle(ref, () => ({
+    /**
+     * Agrega un punto a la medición actual desde coordenadas externas
+     * Útil para agregar puntos desde la barra de búsqueda
+     * @param {Array<number>} coordinates - Coordenadas [x, y] en EPSG:3857
+     */
     addPoint: (coordinates) => {
       if (!map || !measureLayerRef.current || activeTool !== "measure") return;
       
@@ -474,15 +507,26 @@ const MeasureTool = forwardRef(function MeasureTool({ map, activeTool, measureTy
         }
       }
     },
+    /**
+     * Limpia todas las mediciones del mapa
+     */
     clearMeasurement: () => {
       if (measureLayerRef.current) {
         measureLayerRef.current.getSource().clear();
         currentFeatureRef.current = null;
       }
     },
+    /**
+     * Verifica si hay una medición en progreso
+     * @returns {boolean} true si hay una medición activa
+     */
     hasActiveMeasurement: () => {
       return currentFeatureRef.current !== null;
     },
+    /**
+     * Finaliza la medición actual y la convierte en una medición permanente
+     * Agrega un botón de eliminar al tooltip
+     */
     finishMeasurement: () => {
       if (!map || !measureLayerRef.current || !currentFeatureRef.current) return;
       

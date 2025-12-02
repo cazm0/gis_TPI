@@ -1,7 +1,25 @@
+/**
+ * LayerStyleEditor - Editor de estilo para capas
+ * 
+ * Permite al usuario editar:
+ * - Color (solo para capas de usuario)
+ * - Opacidad/transparencia (para todas las capas)
+ * 
+ * Muestra una vista previa del color y opacidad mientras se edita
+ */
+
 import React, { useState, useEffect } from "react";
 import Modal from "../common/Modal";
 import "./LayerStyleEditor.css";
 
+/**
+ * Componente LayerStyleEditor
+ * @param {string} layerId - ID de la capa a editar
+ * @param {string} layerName - Nombre de la capa (para mostrar en el título)
+ * @param {boolean} isUserLayer - true si es una capa de usuario, false si es WMS
+ * @param {LayerManager} layerManager - Gestor de capas
+ * @param {function} onClose - Callback cuando se cierra el editor
+ */
 export default function LayerStyleEditor({ layerId, layerName, isUserLayer, layerManager, onClose }) {
   const [color, setColor] = useState("#ff6b6b");
   const [opacity, setOpacity] = useState(1);

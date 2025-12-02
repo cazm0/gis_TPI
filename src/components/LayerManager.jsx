@@ -1,3 +1,14 @@
+/**
+ * LayerManager - Gestor de capas GIS para la aplicación
+ * 
+ * Esta clase maneja todas las operaciones relacionadas con capas:
+ * - Capas WMS desde GeoServer (imágenes rasterizadas)
+ * - Capas vectoriales de usuario (cargadas desde archivos o dibujadas)
+ * - Gestión de visibilidad, opacidad, estilos y ordenamiento (z-index)
+ * - Persistencia de capas de usuario en localStorage
+ * - Manejo automático de variantes de nombres de capas (para compatibilidad con GeoServer)
+ */
+
 import ImageLayer from "ol/layer/Image";
 import ImageWMS from "ol/source/ImageWMS";
 import VectorLayer from "ol/layer/Vector";
@@ -8,30 +19,42 @@ import { URL_OGC } from "../config";
 import { layersConfig } from "../layers";
 
 export default class LayerManager {
+  /**
+   * Constructor - Inicializa el gestor de capas
+   * @param {ol.Map} map - Instancia del mapa de OpenLayers
+   */
   constructor(map) {
-    this.map = map;
-    this.layers = {};
-    this.userLayers = {}; // Capas de usuario (en memoria)
-    this.onChange = null; // 👈 importante
-    this.layerVariants = {}; // Almacena las variantes de nombres para cada capa
-    this.activeLayerNames = {}; // Almacena el nombre real que funciona para cada capa
+    this.map = map; // Referencia al mapa de OpenLayers
+    this.layers = {}; // Diccionario de capas WMS desde GeoServer (id -> layer)
+    this.userLayers = {}; // Diccionario de capas vectoriales de usuario (id -> layer)
+    this.onChange = null; // Callback para notificar cambios a React (para actualizar UI)
+    this.layerVariants = {}; // Almacena las variantes de nombres posibles para cada capa
+    this.activeLayerNames = {}; // Almacena el nombre real que funciona para cada capa en GeoServer
     
-    // Cargar capas de usuario desde localStorage
+    // Cargar capas de usuario guardadas previamente en localStorage
     this.loadUserLayers();
 
+    // Crear una capa WMS para cada configuración definida en layersConfig
     layersConfig.forEach((cfg) => {
-      // Extraer workspace y nombre de capa
+      // Extraer workspace y nombre de capa del formato "workspace:layerName"
       const [workspace, layerName] = cfg.id.split(':');
       
-      // Generar variantes posibles del nombre
-      // Esto incluye: original, con "0", y también variantes con caracteres especiales codificados
+      /**
+       * Generar variantes posibles del nombre de capa
+       * GeoServer a veces modifica los nombres de capas:
+       * - Agrega "0", "1", "2" al final
+       * - Codifica caracteres especiales (acentos, ñ) como "_"
+       * Esto permite intentar múltiples variantes automáticamente si una falla
+       */
       const variants = [
         layerName + '0',  // Con 0 al final (GeoServer a veces agrega esto)
         layerName,        // Nombre original
       ];
       
-      // Agregar variantes con caracteres especiales codificados (GeoServer a veces codifica caracteres)
-      // Mapeo de caracteres especiales que GeoServer puede codificar
+      /**
+       * Función para codificar caracteres especiales que GeoServer puede modificar
+       * GeoServer a veces reemplaza acentos y caracteres especiales con guiones bajos
+       */
       const encodeSpecialChars = (name) => {
         return name
           .replace(/ó/g, '_')  // ó -> _
@@ -65,18 +88,25 @@ export default class LayerManager {
       // Crear la capa con el nombre original primero
       const initialLayerId = this.layerVariants[cfg.id][0];
       
+      /**
+       * Crear fuente WMS (Web Map Service) para obtener imágenes rasterizadas de GeoServer
+       * WMS devuelve imágenes PNG de las capas en lugar de datos vectoriales
+       */
       const source = new ImageWMS({
-          url: URL_OGC,
+          url: URL_OGC, // URL del servicio WMS configurada en config.js
           params: {
-          LAYERS: initialLayerId,
-            VERSION: "1.1.0",
-            SRS: "EPSG:4326",
-            FORMAT: "image/png",
+          LAYERS: initialLayerId, // Nombre de la capa en GeoServer
+            VERSION: "1.1.0", // Versión del protocolo WMS
+            SRS: "EPSG:4326", // Sistema de coordenadas (WGS84)
+            FORMAT: "image/png", // Formato de imagen solicitado
           },
-          serverType: "geoserver",
+          serverType: "geoserver", // Tipo de servidor (optimiza parámetros para GeoServer)
       });
 
-
+      /**
+       * Crear capa de imagen que mostrará las imágenes WMS en el mapa
+       * Inicialmente invisible (visible: false) hasta que el usuario la active
+       */
       const layer = new ImageLayer({
         visible: false,
         source: source,
@@ -92,31 +122,45 @@ export default class LayerManager {
       this.variantIndex = {}; // Rastrea qué variante se está usando para cada capa
       this.variantIndex[cfg.id] = 0;
 
-      // Escuchar cuando la imagen se carga exitosamente para actualizar leyendas
+      /**
+       * Evento: cuando la imagen WMS se carga exitosamente
+       * Actualiza la UI (leyendas, lista de capas) si hay un callback configurado
+       */
       source.on('imageloadend', () => {
-        // Solo actualizar si la capa está visible
+        // Solo actualizar si la capa está visible y hay callback de cambio
         if (layer.getVisible() && this.onChange) {
           this.onChange();
         }
       });
 
-      // Escuchar errores en el source para intentar variantes automáticamente
+      /**
+       * Evento: cuando hay un error al cargar la imagen WMS
+       * Intenta automáticamente la siguiente variante del nombre de capa
+       * Esto maneja casos donde GeoServer tiene nombres ligeramente diferentes
+       */
       source.on('imageloaderror', (error) => {
         // Intentar siguiente variante solo si aún hay variantes disponibles
         this.tryNextVariant(cfg.id, layer);
       });
 
-      // También intentar variantes cuando la capa se hace visible por primera vez
-      // Esto ayuda a encontrar la variante correcta incluso si no hay error inmediato
+      /**
+       * Interceptar el método setVisible para manejar la primera activación
+       * Cuando una capa se hace visible por primera vez, intenta todas las variantes
+       * para encontrar el nombre correcto en GeoServer
+       */
       const originalSetVisible = layer.setVisible.bind(layer);
       layer.setVisible = (visible) => {
+        // Si es la primera vez que se hace visible, intentar todas las variantes
         if (visible && this.variantIndex[cfg.id] === 0) {
-          // Si es la primera vez que se hace visible, intentar cargar con todas las variantes
           this.tryVariantsOnVisible(cfg.id, layer);
         }
         originalSetVisible(visible);
         
-        // Si la capa se hace visible y tiene tipo de geometría, posicionarla correctamente
+        /**
+         * Si la capa se hace visible y tiene tipo de geometría definido,
+         * posicionarla correctamente en el orden de renderizado (z-index)
+         * Orden: Puntos (arriba) -> Líneas (medio) -> Polígonos (abajo)
+         */
         if (visible && cfg.geometryType) {
           // Usar setTimeout para asegurar que la capa esté completamente visible antes de posicionarla
           setTimeout(() => {
@@ -131,7 +175,10 @@ export default class LayerManager {
   }
 
   /**
-   * Intenta todas las variantes cuando la capa se hace visible por primera vez
+   * Intenta todas las variantes de nombre cuando la capa se hace visible por primera vez
+   * Prueba cada variante secuencialmente hasta encontrar una que funcione
+   * @param {string} configId - ID de la configuración de la capa
+   * @param {ol.layer.Image} layer - Capa de OpenLayers a probar
    */
   tryVariantsOnVisible(configId, layer) {
     const variants = this.layerVariants[configId];
@@ -188,6 +235,9 @@ export default class LayerManager {
 
   /**
    * Intenta la siguiente variante del nombre de capa si la actual falla
+   * Se llama automáticamente cuando hay un error al cargar una capa WMS
+   * @param {string} configId - ID de la configuración de la capa
+   * @param {ol.layer.Image} layer - Capa de OpenLayers que falló
    */
   tryNextVariant(configId, layer) {
     const variants = this.layerVariants[configId];
@@ -213,8 +263,14 @@ export default class LayerManager {
     }
   }
 
+  /**
+   * Cambiar la visibilidad de una capa (mostrar/ocultar)
+   * @param {string} id - ID de la capa
+   * @param {boolean} visible - true para mostrar, false para ocultar
+   */
   setVisible(id, visible) {
     if (this.layers[id]) {
+      // Capa WMS desde GeoServer
       this.layers[id].setVisible(visible);
       
       // Si la capa se hace visible y tiene tipo de geometría, posicionarla correctamente
@@ -229,21 +285,29 @@ export default class LayerManager {
         }
       }
       
-      // ⚡ Notificar a React
+      // Notificar a React para actualizar la UI
       if (this.onChange) this.onChange();
     } else if (this.userLayers[id]) {
+      // Capa vectorial de usuario
       this.userLayers[id].setVisible(visible);
-      // ⚡ Notificar a React
+      // Notificar a React para actualizar la UI
       if (this.onChange) this.onChange();
     }
   }
 
+  /**
+   * Obtener el estado de visibilidad de una capa
+   * @param {string} id - ID de la capa
+   * @returns {boolean} true si la capa está visible, false en caso contrario
+   */
   getVisible(id) {
     return this.layers[id]?.getVisible() || this.userLayers[id]?.getVisible() || false;
   }
 
   /**
    * Obtiene todas las capas visibles (incluyendo de usuario)
+   * Retorna los nombres reales de las capas que están funcionando en GeoServer
+   * @returns {string[]} Array de nombres de capas visibles
    */
   getVisibleLayers() {
     const visible = [];
@@ -263,7 +327,10 @@ export default class LayerManager {
   }
 
   /**
-   * Obtiene el nombre real de la capa (con variantes aplicadas)
+   * Obtiene el nombre real de la capa que está funcionando en GeoServer
+   * (puede ser diferente del nombre original si se aplicó una variante)
+   * @param {string} id - ID de la configuración de la capa
+   * @returns {string} Nombre real de la capa en GeoServer
    */
   getActiveLayerName(id) {
     return this.activeLayerNames[id] || id;
@@ -271,6 +338,8 @@ export default class LayerManager {
 
   /**
    * Cambiar opacidad de una capa WMS
+   * @param {string} layerId - ID de la capa
+   * @param {number} opacity - Opacidad entre 0 (transparente) y 1 (opaco)
    */
   setLayerOpacity(layerId, opacity) {
     const layer = this.layers[layerId];
@@ -284,6 +353,10 @@ export default class LayerManager {
 
   /**
    * Cambiar estilo de una capa de usuario (color y opacidad)
+   * Aplica diferentes estilos según el tipo de geometría (Point, LineString, Polygon)
+   * @param {string} layerId - ID de la capa de usuario
+   * @param {string} color - Color en formato hex (#RRGGBB) o rgba
+   * @param {number} opacity - Opacidad entre 0 (transparente) y 1 (opaco)
    */
   setUserLayerStyle(layerId, color, opacity) {
     const userLayer = this.userLayers[layerId];
@@ -354,7 +427,9 @@ export default class LayerManager {
   }
 
   /**
-   * Cargar capas de usuario desde localStorage
+   * Cargar capas de usuario guardadas previamente en localStorage
+   * Restaura las capas vectoriales que el usuario había creado en sesiones anteriores
+   * Incluye features, estilos, atributos y configuración
    */
   loadUserLayers() {
     try {
@@ -398,7 +473,9 @@ export default class LayerManager {
   }
 
   /**
-   * Guardar capas de usuario en localStorage
+   * Guardar capas de usuario en localStorage para persistencia
+   * Guarda todas las features, estilos, atributos y configuración de las capas de usuario
+   * Permite que las capas persistan entre sesiones del navegador
    */
   saveUserLayers() {
     try {
@@ -434,7 +511,15 @@ export default class LayerManager {
   }
 
   /**
-   * Crear una nueva capa de usuario
+   * Crear una nueva capa vectorial de usuario
+   * Las capas de usuario son capas vectoriales que el usuario puede crear, editar y eliminar
+   * Se guardan en memoria y se persisten en localStorage
+   * @param {string} layerId - ID único de la capa (formato "user:nombre")
+   * @param {string} title - Título descriptivo de la capa
+   * @param {string} geometryType - Tipo de geometría: "Point", "LineString", o "Polygon"
+   * @param {Array} featuresData - Array de features GeoJSON para cargar en la capa
+   * @param {Array} attributes - Esquema de atributos de la capa
+   * @returns {ol.layer.Vector} Capa vectorial creada
    */
   createUserLayer(layerId, title, geometryType, featuresData = [], attributes = []) {
     // Si la capa ya existe, no crear otra
@@ -542,7 +627,9 @@ export default class LayerManager {
   }
 
   /**
-   * Agregar feature a una capa de usuario
+   * Agregar una feature (geometría) a una capa de usuario existente
+   * @param {string} layerId - ID de la capa de usuario
+   * @param {ol.Feature} feature - Feature de OpenLayers a agregar
    */
   addFeatureToUserLayer(layerId, feature) {
     if (!this.userLayers[layerId]) {
@@ -561,21 +648,24 @@ export default class LayerManager {
   }
 
   /**
-   * Obtener todas las capas (incluyendo de usuario)
+   * Obtener todas las capas (WMS y de usuario) combinadas
+   * @returns {Object} Diccionario con todas las capas (id -> layer)
    */
   getAllLayers() {
     return { ...this.layers, ...this.userLayers };
   }
 
   /**
-   * Obtener solo capas de usuario
+   * Obtener solo las capas vectoriales de usuario
+   * @returns {Object} Diccionario con capas de usuario (id -> layer)
    */
   getUserLayers() {
     return this.userLayers;
   }
 
   /**
-   * Eliminar capa de usuario
+   * Eliminar una capa de usuario del mapa y del almacenamiento
+   * @param {string} layerId - ID de la capa a eliminar
    */
   removeUserLayer(layerId) {
     if (this.userLayers[layerId]) {
@@ -587,7 +677,10 @@ export default class LayerManager {
   }
 
   /**
-   * Exportar capa de usuario a GeoJSON
+   * Exportar una capa de usuario a formato GeoJSON
+   * Útil para descargar o compartir las capas creadas por el usuario
+   * @param {string} layerId - ID de la capa a exportar
+   * @returns {string|null} GeoJSON como string, o null si la capa no existe
    */
   exportUserLayerToGeoJSON(layerId) {
     if (!this.userLayers[layerId]) {
@@ -609,6 +702,9 @@ export default class LayerManager {
 
   /**
    * Eliminar una feature específica de una capa de usuario
+   * @param {string} layerId - ID de la capa de usuario
+   * @param {ol.Feature} feature - Feature a eliminar
+   * @returns {boolean} true si se eliminó exitosamente, false en caso contrario
    */
   removeFeatureFromUserLayer(layerId, feature) {
     if (!this.userLayers[layerId]) {
@@ -633,7 +729,9 @@ export default class LayerManager {
   }
 
   /**
-   * Mueve una capa hacia arriba (aumenta z-index)
+   * Mueve una capa hacia arriba en el orden de renderizado (aumenta z-index)
+   * Las capas con mayor z-index se renderizan por encima de las demás
+   * @param {string} layerId - ID de la capa a mover
    */
   moveLayerUp(layerId) {
     const layer = this.layers[layerId] || this.userLayers[layerId];
@@ -648,7 +746,9 @@ export default class LayerManager {
   }
 
   /**
-   * Mueve una capa hacia abajo (disminuye z-index)
+   * Mueve una capa hacia abajo en el orden de renderizado (disminuye z-index)
+   * Las capas con menor z-index se renderizan por debajo de las demás
+   * @param {string} layerId - ID de la capa a mover
    */
   moveLayerDown(layerId) {
     const layer = this.layers[layerId] || this.userLayers[layerId];
@@ -664,6 +764,8 @@ export default class LayerManager {
 
   /**
    * Obtiene el z-index actual de una capa
+   * @param {string} layerId - ID de la capa
+   * @returns {number} z-index de la capa (0 por defecto)
    */
   getLayerZIndex(layerId) {
     const layer = this.layers[layerId] || this.userLayers[layerId];
@@ -672,7 +774,10 @@ export default class LayerManager {
   }
 
   /**
-   * Obtiene todas las capas visibles ordenadas por z-index (de menor a mayor)
+   * Obtiene todas las capas visibles ordenadas por tipo de geometría y z-index
+   * Orden de renderizado: Puntos (arriba) -> Líneas (medio) -> Polígonos (abajo)
+   * Dentro de cada grupo, se ordena por z-index (mayor a menor)
+   * @returns {Array} Array de objetos con información de capas visibles
    */
   getVisibleLayersOrdered() {
     const visible = [];
@@ -726,7 +831,11 @@ export default class LayerManager {
   }
 
   /**
-   * Mueve una capa a una posición específica en el orden (basado en índice)
+   * Mueve una capa a una posición específica en el orden de renderizado
+   * Calcula el z-index apropiado para que la capa quede en la posición deseada
+   * Respeta el orden por tipo de geometría (no permite mezclar tipos)
+   * @param {string} layerId - ID de la capa a mover
+   * @param {number} targetIndex - Índice objetivo en la lista de capas visibles
    */
   moveLayerToPosition(layerId, targetIndex) {
     const orderedLayers = this.getVisibleLayersOrdered();
@@ -866,9 +975,12 @@ export default class LayerManager {
   }
 
   /**
-   * Posiciona una capa según su tipo de geometría
-   * Orden: Puntos (arriba) -> Líneas (medio) -> Polígonos (abajo)
+   * Posiciona una capa según su tipo de geometría en el orden de renderizado
+   * Orden estándar: Puntos (arriba) -> Líneas (medio) -> Polígonos (abajo)
    * Las nuevas capas se insertan al principio de su grupo (arriba de todas las del mismo tipo)
+   * Esto asegura que los puntos siempre sean visibles sobre líneas y polígonos
+   * @param {string} layerId - ID de la capa a posicionar
+   * @param {string} geometryType - Tipo de geometría: "Point", "LineString", o "Polygon"
    */
   positionLayerByGeometryType(layerId, geometryType) {
     if (!geometryType) return;

@@ -1,3 +1,15 @@
+/**
+ * DrawTool - Herramienta para dibujar features en el mapa
+ * 
+ * Permite al usuario dibujar puntos, líneas y polígonos en el mapa y guardarlos:
+ * - En capas de usuario nuevas (en memoria, con atributos personalizables)
+ * - En capas de usuario existentes (en memoria)
+ * - En capas de GeoServer (usando WFS Transaction)
+ * 
+ * Soporta definición de esquema de atributos para nuevas capas y entrada de valores
+ * para features individuales.
+ */
+
 import { useEffect, useRef, useState, useCallback } from "react";
 import VectorSource from "ol/source/Vector";
 import VectorLayer from "ol/layer/Vector";
@@ -9,6 +21,15 @@ import { URL_WFS } from "../../config";
 import Modal from "../common/Modal";
 import "./DrawTool.css";
 
+/**
+ * Componente DrawTool
+ * @param {ol.Map} map - Instancia del mapa de OpenLayers
+ * @param {string} activeTool - Herramienta actualmente activa (debe ser "draw" para activarse)
+ * @param {LayerManager} layerManager - Gestor de capas
+ * @param {function} onToolChange - Callback cuando se cambia la herramienta activa
+ * @param {string} propGeometryType - Tipo de geometría a dibujar: "Point", "LineString", "Polygon"
+ * @param {function} onGeometryTypeChange - Callback cuando cambia el tipo de geometría
+ */
 export default function DrawTool({ map, activeTool, layerManager, onToolChange, geometryType: propGeometryType, onGeometryTypeChange }) {
   const drawRef = useRef(null);
   const drawLayerRef = useRef(null);
@@ -37,7 +58,10 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
   const hintRef = useRef(null);
   const [modal, setModal] = useState({ isOpen: false, message: "", type: "info", title: "" });
 
-  // Crear capa temporal para dibujar
+  /**
+   * Crear capa temporal para mostrar el dibujo mientras se está dibujando
+   * Esta capa se usa solo para visualización temporal, no se guarda
+   */
   useEffect(() => {
     if (!map) return;
 
@@ -75,7 +99,10 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
     };
   }, [map]);
 
-  // Manejar herramienta de dibujo
+  /**
+   * Manejar la activación/desactivación de la herramienta de dibujo
+   * Crea la interacción de dibujo de OpenLayers cuando la herramienta está activa
+   */
   useEffect(() => {
     if (!map || !drawLayerRef.current || activeTool !== "draw") {
       if (drawRef.current) {
@@ -201,7 +228,11 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
     };
   }, [map, activeTool, geometryType, onToolChange]);
 
-  // Obtener capas visibles filtradas por tipo de geometría (solo capas de usuario)
+  /**
+   * Obtiene las capas de usuario visibles que son compatibles con el tipo de geometría actual
+   * Solo muestra capas que tienen el mismo tipo de geometría que se está dibujando
+   * @returns {Array} Array de capas compatibles con su información
+   */
   const getVisibleLayersForSelection = useCallback(async () => {
     if (!layerManager) return [];
     
@@ -259,7 +290,13 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
     }
   }, [showDialog, geometryType, layerManager, drawnFeature, getVisibleLayersForSelection, selectedExistingLayer]);
 
-  // Guardar feature en memoria (capa de usuario) o en GeoServer (capa existente)
+  /**
+   * Guarda el feature dibujado en la capa seleccionada
+   * Puede guardar en:
+   * - Capa de usuario nueva (en memoria)
+   * - Capa de usuario existente (en memoria)
+   * - Capa de GeoServer (usando WFS Transaction)
+   */
   const saveFeature = async () => {
     if (!drawnFeature) return;
 
@@ -464,12 +501,17 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
     }
   };
 
-  // Agregar atributo a la lista
+  /**
+   * Agrega un nuevo atributo al esquema de la capa
+   */
   const addAttribute = () => {
     setLayerAttributes([...layerAttributes, { name: '', type: 'string', defaultValue: '' }]);
   };
 
-  // Eliminar atributo
+  /**
+   * Elimina un atributo del esquema de la capa
+   * @param {number} index - Índice del atributo a eliminar
+   */
   const removeAttribute = (index) => {
     setLayerAttributes(layerAttributes.filter((_, i) => i !== index));
     // También eliminar de featureAttributes si existe
@@ -481,7 +523,12 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
     }
   };
 
-  // Actualizar atributo
+  /**
+   * Actualiza un campo de un atributo en el esquema
+   * @param {number} index - Índice del atributo
+   * @param {string} field - Campo a actualizar ('name', 'type', 'defaultValue')
+   * @param {any} value - Nuevo valor
+   */
   const updateAttribute = (index, field, value) => {
     const updated = [...layerAttributes];
     const oldName = updated[index].name;
@@ -499,12 +546,19 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
     }
   };
 
-  // Actualizar valor de atributo de feature
+  /**
+   * Actualiza el valor de un atributo para la feature actual
+   * @param {string} name - Nombre del atributo
+   * @param {any} value - Valor del atributo
+   */
   const updateFeatureAttribute = (name, value) => {
     setFeatureAttributes({ ...featureAttributes, [name]: value });
   };
 
-  // Guardar feature con atributos
+  /**
+   * Guarda el feature con todos sus atributos
+   * Se llama después de que el usuario completa el formulario de atributos
+   */
   const saveFeatureWithAttributes = () => {
     if (!drawnFeature) return;
 

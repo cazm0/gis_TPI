@@ -1,8 +1,27 @@
+/**
+ * LayerPanel - Panel lateral para gestionar capas del mapa
+ * 
+ * Muestra todas las capas disponibles organizadas por grupos temáticos:
+ * - Capas de GeoServer (definidas en layersConfig)
+ * - Capas de usuario (creadas por el usuario)
+ * 
+ * Permite:
+ * - Activar/desactivar capas
+ * - Buscar capas por nombre o grupo
+ * - Expandir/colapsar grupos
+ * - Descargar y eliminar capas de usuario
+ */
+
 import React, { useState, useMemo, useEffect } from "react";
 import { layersConfig, groupConfig } from "../../layers";
 import Modal from "../common/Modal";
 import "./LayerPanel.css";
 
+/**
+ * Componente LayerPanel
+ * @param {LayerManager} layerManager - Gestor de capas
+ * @param {number} update - Contador de actualización para forzar re-render cuando cambian las capas
+ */
 export default function LayerPanel({ layerManager, update }) {
   const [isCollapsed, setIsCollapsed] = useState(false);
   const [isClosing, setIsClosing] = useState(false);
@@ -10,7 +29,10 @@ export default function LayerPanel({ layerManager, update }) {
   const [expandedGroups, setExpandedGroups] = useState({});
   const [modal, setModal] = useState({ isOpen: false, message: "", type: "info", title: "" });
 
-  // Toggle grupo expandido/colapsado
+  /**
+   * Alterna el estado expandido/colapsado de un grupo de capas
+   * @param {string} group - Nombre del grupo
+   */
   const toggleGroup = (group) => {
     setExpandedGroups(prev => ({
       ...prev,
@@ -18,7 +40,10 @@ export default function LayerPanel({ layerManager, update }) {
     }));
   };
 
-  // Obtener capas de usuario (reactivo a cambios)
+  /**
+   * Obtiene las capas de usuario de forma reactiva
+   * Se actualiza cuando cambia el contador 'update'
+   */
   const userLayers = useMemo(() => {
     if (!layerManager) return [];
     const userLayersObj = layerManager.getUserLayers();
@@ -34,12 +59,17 @@ export default function LayerPanel({ layerManager, update }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layerManager, update]); // Depender de update para reactividad
 
-  // Combinar capas normales y de usuario
+  /**
+   * Combina las capas de GeoServer y las capas de usuario en una sola lista
+   */
   const allLayers = useMemo(() => {
     return [...layersConfig, ...userLayers];
   }, [userLayers]);
 
-  // Filtrar capas por búsqueda
+  /**
+   * Filtra las capas según el texto de búsqueda
+   * Busca en el título de la capa y en el nombre del grupo
+   */
   const filteredLayers = useMemo(() => {
     if (!searchQuery.trim()) return allLayers;
     const query = searchQuery.toLowerCase();
@@ -49,7 +79,10 @@ export default function LayerPanel({ layerManager, update }) {
     );
   }, [searchQuery, allLayers]);
 
-  // Agrupar capas filtradas por categoría
+  /**
+   * Agrupa las capas filtradas por su categoría temática
+   * @returns {Array} Array de objetos {group, layers}
+   */
   const groupedLayers = useMemo(() => {
     const groups = {};
     filteredLayers.forEach(layer => {
@@ -64,7 +97,11 @@ export default function LayerPanel({ layerManager, update }) {
     }));
   }, [filteredLayers]);
 
-  // Función para descargar capa de usuario
+  /**
+   * Descarga una capa de usuario como archivo GeoJSON
+   * @param {string} layerId - ID de la capa de usuario
+   * @param {string} layerTitle - Título de la capa (para el nombre del archivo)
+   */
   const downloadUserLayer = (layerId, layerTitle) => {
     if (!layerManager) return;
     
@@ -85,7 +122,11 @@ export default function LayerPanel({ layerManager, update }) {
     URL.revokeObjectURL(url);
   };
 
-  // Función para eliminar capa de usuario
+  /**
+   * Elimina una capa de usuario del mapa y del almacenamiento
+   * @param {string} layerId - ID de la capa de usuario
+   * @param {string} layerTitle - Título de la capa (para el mensaje de confirmación)
+   */
   const deleteUserLayer = (layerId, layerTitle) => {
     if (!window.confirm(`¿Estás seguro de que deseas eliminar la capa "${layerTitle}"?`)) {
       return;

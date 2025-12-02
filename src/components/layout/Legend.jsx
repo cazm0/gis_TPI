@@ -1,6 +1,20 @@
+/**
+ * Legend - Componente para mostrar la leyenda de una capa individual
+ * 
+ * Carga y muestra la leyenda de una capa desde GeoServer usando GetLegendGraphic
+ * Para capas de usuario, muestra un símbolo simple con el color personalizado
+ */
+
 import React, { useState, useEffect } from "react";
 import "./Legend.css";
 
+/**
+ * Componente Legend
+ * @param {string} layerName - Nombre de la capa en GeoServer (formato "workspace:layerName")
+ * @param {string} layerId - ID de la capa
+ * @param {boolean} isUserLayer - true si es una capa de usuario
+ * @param {LayerManager} layerManager - Gestor de capas
+ */
 export default function Legend({ layerName, layerId, isUserLayer, layerManager }) {
   const [legendUrl, setLegendUrl] = useState(null);
   const [loading, setLoading] = useState(false);
