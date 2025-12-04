@@ -19,6 +19,9 @@ export default function QueryTool({ map, activeTool, layerManager }) {
   const [queryResults, setQueryResults] = useState(null);
   const [isLoading, setIsLoading] = useState(false);
   const [selectedFeature, setSelectedFeature] = useState(null);
+  const [selectedAttribute, setSelectedAttribute] = useState("");
+  const [statisticType, setStatisticType] = useState("count");
+  const [statisticResult, setStatisticResult] = useState(null);
   const isDrawingRef = useRef(false);
   const startCoordRef = useRef(null);
 
@@ -856,6 +859,165 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     };
   }, [map, queryResults, activeTool]);
 
+  // Obtener todos los atributos únicos de las features
+  const getAvailableAttributes = () => {
+    if (!queryResults || !queryResults.features || queryResults.features.length === 0) {
+      return [];
+    }
+
+    const attributesSet = new Set();
+    queryResults.features.forEach((item) => {
+      if (item.properties) {
+        Object.keys(item.properties).forEach((key) => {
+          if (key !== "geometry") {
+            attributesSet.add(key);
+          }
+        });
+      }
+    });
+
+    return Array.from(attributesSet).sort();
+  };
+
+  // Calcular estadísticas
+  const calculateStatistics = () => {
+    if (!queryResults || !queryResults.features || queryResults.features.length === 0) {
+      setStatisticResult(null);
+      return;
+    }
+
+    if (!selectedAttribute) {
+      setStatisticResult(null);
+      return;
+    }
+
+    const values = [];
+    queryResults.features.forEach((item) => {
+      if (item.properties && item.properties[selectedAttribute] !== undefined) {
+        const value = item.properties[selectedAttribute];
+        if (value !== null && value !== "") {
+          values.push(value);
+        }
+      }
+    });
+
+    if (values.length === 0) {
+      setStatisticResult({
+        type: statisticType,
+        attribute: selectedAttribute,
+        value: "No hay valores válidos para calcular",
+      });
+      return;
+    }
+
+    // Detectar si es un atributo lógico (V/F, True/False, 1/0)
+    const isLogicalAttribute = values.every((v) => {
+      const str = String(v).toUpperCase().trim();
+      return (
+        str === "V" ||
+        str === "F" ||
+        str === "TRUE" ||
+        str === "FALSE" ||
+        str === "1" ||
+        str === "0" ||
+        str === "T" ||
+        str === "N" ||
+        v === true ||
+        v === false
+      );
+    });
+
+    let result;
+    let logicalBreakdown = null;
+
+    switch (statisticType) {
+      case "count":
+        if (isLogicalAttribute) {
+          // Contar verdaderos y falsos
+          let trueCount = 0;
+          let falseCount = 0;
+
+          values.forEach((v) => {
+            const str = String(v).toUpperCase().trim();
+            const isTrue =
+              str === "V" ||
+              str === "TRUE" ||
+              str === "1" ||
+              str === "T" ||
+              v === true;
+            const isFalse =
+              str === "F" ||
+              str === "FALSE" ||
+              str === "0" ||
+              str === "N" ||
+              v === false;
+
+            if (isTrue) {
+              trueCount++;
+            } else if (isFalse) {
+              falseCount++;
+            }
+          });
+
+          logicalBreakdown = {
+            true: trueCount,
+            false: falseCount,
+            total: values.length,
+          };
+          result = `${trueCount} verdaderos, ${falseCount} falsos`;
+        } else {
+          result = values.length;
+        }
+        break;
+      case "sum":
+        const numericValues = values
+          .map((v) => {
+            const num = parseFloat(v);
+            return isNaN(num) ? null : num;
+          })
+          .filter((v) => v !== null);
+        if (numericValues.length === 0) {
+          result = "No se pueden sumar valores no numéricos";
+        } else {
+          result = numericValues.reduce((sum, val) => sum + val, 0);
+        }
+        break;
+      case "average":
+        const avgNumericValues = values
+          .map((v) => {
+            const num = parseFloat(v);
+            return isNaN(num) ? null : num;
+          })
+          .filter((v) => v !== null);
+        if (avgNumericValues.length === 0) {
+          result = "No se puede calcular el promedio de valores no numéricos";
+        } else {
+          const sum = avgNumericValues.reduce((s, val) => s + val, 0);
+          result = sum / avgNumericValues.length;
+        }
+        break;
+      default:
+        result = "Tipo de estadística no válido";
+    }
+
+    setStatisticResult({
+      type: statisticType,
+      attribute: selectedAttribute,
+      value: result,
+      totalValues: values.length,
+      isLogical: isLogicalAttribute,
+      logicalBreakdown: logicalBreakdown,
+    });
+  };
+
+  // Resetear estadísticas cuando cambian los resultados
+  useEffect(() => {
+    if (queryResults) {
+      setStatisticResult(null);
+      setSelectedAttribute("");
+    }
+  }, [queryResults]);
+
   if (activeTool !== "query") return null;
 
   return (
@@ -1038,6 +1200,123 @@ export default function QueryTool({ map, activeTool, layerManager }) {
                     </table>
                   </div>
                 </div>
+              </div>
+            )}
+
+            {queryResults.features.length > 0 && (
+              <div className="query-statistics">
+                <h4>Estadísticas de Atributos</h4>
+                <div className="query-statistics-controls">
+                  <div className="query-statistics-row">
+                    <label htmlFor="stat-attribute">Atributo:</label>
+                    <select
+                      id="stat-attribute"
+                      value={selectedAttribute}
+                      onChange={(e) => setSelectedAttribute(e.target.value)}
+                      style={{
+                        padding: "6px 8px",
+                        border: "1px solid #ddd",
+                        borderRadius: 4,
+                        fontSize: 13,
+                        background: "white",
+                        cursor: "pointer",
+                        flex: 1,
+                      }}
+                    >
+                      <option value="">Seleccione un atributo</option>
+                      {getAvailableAttributes().map((attr) => (
+                        <option key={attr} value={attr}>
+                          {attr}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="query-statistics-row">
+                    <label htmlFor="stat-type">Tipo de estadística:</label>
+                    <select
+                      id="stat-type"
+                      value={statisticType}
+                      onChange={(e) => setStatisticType(e.target.value)}
+                      style={{
+                        padding: "6px 8px",
+                        border: "1px solid #ddd",
+                        borderRadius: 4,
+                        fontSize: 13,
+                        background: "white",
+                        cursor: "pointer",
+                        flex: 1,
+                      }}
+                    >
+                      <option value="count">Conteo</option>
+                      <option value="sum">Suma</option>
+                      <option value="average">Promedio</option>
+                    </select>
+                  </div>
+                  <button
+                    onClick={calculateStatistics}
+                    disabled={!selectedAttribute}
+                    style={{
+                      padding: "8px 16px",
+                      borderRadius: 4,
+                      border: "none",
+                      backgroundColor: selectedAttribute ? "#1a73e8" : "#ccc",
+                      color: "white",
+                      fontSize: 13,
+                      fontWeight: 500,
+                      cursor: selectedAttribute ? "pointer" : "not-allowed",
+                      transition: "background-color 0.2s",
+                    }}
+                  >
+                    Calcular
+                  </button>
+                </div>
+                {statisticResult && (
+                  <div className="query-statistics-result">
+                    <div className="query-statistics-result-label">
+                      {statisticType === "count" && "Conteo"}
+                      {statisticType === "sum" && "Suma"}
+                      {statisticType === "average" && "Promedio"}
+                      {" de "}
+                      <strong>{statisticResult.attribute}</strong>:
+                    </div>
+                    {statisticResult.isLogical && statisticResult.logicalBreakdown ? (
+                      <div className="query-statistics-logical-breakdown">
+                        <div className="query-statistics-logical-item">
+                          <span className="query-statistics-logical-label">Verdaderos:</span>
+                          <span className="query-statistics-logical-value true">
+                            {statisticResult.logicalBreakdown.true}
+                          </span>
+                        </div>
+                        <div className="query-statistics-logical-item">
+                          <span className="query-statistics-logical-label">Falsos:</span>
+                          <span className="query-statistics-logical-value false">
+                            {statisticResult.logicalBreakdown.false}
+                          </span>
+                        </div>
+                        <div className="query-statistics-result-info">
+                          (Total: {statisticResult.logicalBreakdown.total} valor(es) válido(s) de{" "}
+                          {queryResults.features.length} elemento(s))
+                        </div>
+                      </div>
+                    ) : (
+                      <>
+                        <div className="query-statistics-result-value">
+                          {typeof statisticResult.value === "number"
+                            ? statisticResult.value.toLocaleString("es-ES", {
+                                maximumFractionDigits: 2,
+                              })
+                            : statisticResult.value}
+                        </div>
+                        {statisticResult.totalValues !== undefined && (
+                          <div className="query-statistics-result-info">
+                            (basado en {statisticResult.totalValues} valor(es) válido(s) de{" "}
+                            {queryResults.features.length} elemento(s))
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
