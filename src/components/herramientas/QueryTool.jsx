@@ -18,6 +18,7 @@ import { GeoJSON } from "ol/format";
 import { toLonLat } from "ol/proj";
 import { Point, Polygon } from "ol/geom";
 // Nota: Usamos distancia euclidiana en coordenadas del mapa en lugar de getDistance
+import { getLength, getDistance } from "ol/sphere";
 import { URL_WFS } from "../../config";
 import { layersConfig } from "../../layers";
 import "./QueryTool.css";
@@ -178,15 +179,25 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     };
   }, [map]);
 
+  // Función helper para calcular distancia geodésica entre dos puntos
+  const calculateGeodesicDistance = (coord1, coord2) => {
+    // Convertir coordenadas a EPSG:4326 (lat/lon) para cálculo geodésico
+    const lonLat1 = toLonLat(coord1, "EPSG:3857");
+    const lonLat2 = toLonLat(coord2, "EPSG:3857");
+    // getDistance calcula la distancia geodésica en metros
+    return getDistance(lonLat1, lonLat2);
+  };
+
   /**
    * Consulta features en una capa de usuario (en memoria)
    * @param {string} layerId - ID de la capa de usuario
    * @param {Array<number>} coordinate - Coordenada del punto (para consulta por punto)
    * @param {Array<number>} extent - Extent del rectángulo [minX, minY, maxX, maxY] (para consulta por rectángulo)
    * @param {boolean} isPointQuery - true para consulta por punto, false para rectángulo
+   * @param {number|null} searchRadiusMapUnits - Radio de búsqueda en unidades del mapa (opcional, solo para consulta por punto)
    * @returns {Array<ol.Feature>} Array de features encontradas
    */
-  const queryUserLayer = useCallback((layerId, coordinate, extent, isPointQuery) => {
+  const queryUserLayer = useCallback((layerId, coordinate, extent, isPointQuery, searchRadiusMapUnits = null) => {
     if (!layerManager || !map) {
       return [];
     }
@@ -209,19 +220,38 @@ export default function QueryTool({ map, activeTool, layerManager }) {
       let isInRange = false;
 
       if (isPointQuery) {
-        // Para consulta por punto: verificar si está dentro del radio
-        const closestPoint = geometry.getClosestPoint(coordinate);
-        const dx = coordinate[0] - closestPoint[0];
-        const dy = coordinate[1] - closestPoint[1];
-        const distance = Math.sqrt(dx * dx + dy * dy);
+        // Para consulta por punto: verificar si está dentro del radio usando distancia geodésica
+        let distanceInMeters;
         
-        // Radio de búsqueda en coordenadas del mapa (aproximadamente 50 píxeles)
-        const view = map.getView();
-        const resolution = view.getResolution();
-        const searchRadiusPixels = 50;
-        const searchRadius = resolution * searchRadiusPixels;
+        if (geometry instanceof Point) {
+          const geomCoord = geometry.getCoordinates();
+          distanceInMeters = calculateGeodesicDistance(coordinate, geomCoord);
+        } else {
+          const closestPoint = geometry.getClosestPoint(coordinate);
+          distanceInMeters = calculateGeodesicDistance(coordinate, closestPoint);
+        }
         
-        isInRange = distance <= searchRadius;
+        // Usar el radio pasado como parámetro, o calcularlo si no se proporciona
+        let searchRadiusMeters;
+        if (searchRadiusMapUnits !== null) {
+          // Convertir radio de unidades del mapa a metros
+          const lonLat = toLonLat(coordinate, "EPSG:3857");
+          const latRad = (lonLat[1] * Math.PI) / 180;
+          const metersPerUnit = Math.cos(latRad) * 111320;
+          searchRadiusMeters = searchRadiusMapUnits * metersPerUnit;
+        } else {
+          // Radio de búsqueda en coordenadas del mapa (aproximadamente 10 píxeles)
+          const view = map.getView();
+          const resolution = view.getResolution();
+          const searchRadiusPixels = 10;
+          const searchRadiusMapUnits = resolution * searchRadiusPixels;
+          const lonLat = toLonLat(coordinate, "EPSG:3857");
+          const latRad = (lonLat[1] * Math.PI) / 180;
+          const metersPerUnit = Math.cos(latRad) * 111320;
+          searchRadiusMeters = searchRadiusMapUnits * metersPerUnit;
+        }
+        
+        isInRange = distanceInMeters <= searchRadiusMeters;
       } else {
         // Para consulta por rectángulo: verificar si intersecta
         isInRange = geometry.intersectsExtent(extent);
@@ -236,8 +266,8 @@ export default function QueryTool({ map, activeTool, layerManager }) {
   }, [map, layerManager]);
 
   /**
-   * Consulta por punto: encuentra el objeto más cercano al punto clickeado
-   * Consulta todas las capas visibles y retorna el objeto más cercano de cada capa
+   * Consulta por punto: encuentra objetos dentro de un rango fijo basado en resolución
+   * Consulta todas las capas visibles y retorna todos los objetos dentro del radio de búsqueda
    * @param {Array<number>} coordinate - Coordenada del punto en EPSG:3857
    */
   const queryByPoint = useCallback(async (coordinate) => {
@@ -272,13 +302,14 @@ export default function QueryTool({ map, activeTool, layerManager }) {
     const lonLat = toLonLat(coordinate, "EPSG:3857");
     
     // Calcular el radio de búsqueda basado en la resolución actual del mapa
-    // Esto asegura que busquemos en un área razonable alrededor del punto
+    // Radio fijo en píxeles que se convierte a unidades del mapa según la resolución
     const view = map.getView();
     const resolution = view.getResolution();
-    const searchRadiusPixels = 50; // 50 píxeles de radio de búsqueda
-    const searchRadiusMeters = resolution * searchRadiusPixels;
+    const searchRadiusPixels = 10; // 10 píxeles de radio de búsqueda (fijo)
+    const searchRadiusMapUnits = resolution * searchRadiusPixels; // Radio en unidades del mapa (EPSG:3857)
     
-    // Convertir metros a grados (aproximación: 1 grado ≈ 111km)
+    // Convertir metros a grados para el bbox de WFS (aproximación: 1 grado ≈ 111km)
+    const searchRadiusMeters = searchRadiusMapUnits;
     const searchRadiusDegrees = searchRadiusMeters / 111000;
     
     // Separar capas de usuario de capas de GeoServer
@@ -293,50 +324,44 @@ export default function QueryTool({ map, activeTool, layerManager }) {
       }
     });
     
-    // Buscar el objeto más cercano en todas las capas
+    // Buscar objetos dentro del rango fijo en todas las capas
     const allFeatures = [];
     const layerResults = {};
 
     try {
       // Consultar capas de usuario (en memoria)
       userLayerIds.forEach(layerId => {
-        const foundFeatures = queryUserLayer(layerId, coordinate, null, true);
+        // Pasar el radio calculado para que use el mismo valor
+        const foundFeatures = queryUserLayer(layerId, coordinate, null, true, searchRadiusMapUnits);
         if (foundFeatures.length > 0) {
-          // Encontrar la feature más cercana
-          let closestFeature = null;
-          let minDistance = Infinity;
-
+          // Calcular distancias geodésicas para todas las features encontradas (ya están filtradas por radio)
+          const displayName = getLayerDisplayName(layerId);
+          
           foundFeatures.forEach((feature) => {
             const geometry = feature.getGeometry();
-            const closestPoint = geometry.getClosestPoint(coordinate);
-            const dx = coordinate[0] - closestPoint[0];
-            const dy = coordinate[1] - closestPoint[1];
-            const distance = Math.sqrt(dx * dx + dy * dy);
-
-            if (distance < minDistance) {
-              minDistance = distance;
-              closestFeature = feature;
+            let distanceInMeters;
+            
+            if (geometry instanceof Point) {
+              // Para puntos: distancia geodésica directa
+              const geomCoord = geometry.getCoordinates();
+              distanceInMeters = calculateGeodesicDistance(coordinate, geomCoord);
+            } else {
+              // Para líneas y polígonos: encontrar el punto más cercano y calcular distancia geodésica
+              const closestPoint = geometry.getClosestPoint(coordinate);
+              distanceInMeters = calculateGeodesicDistance(coordinate, closestPoint);
             }
-          });
-
-          if (closestFeature) {
-            const displayName = getLayerDisplayName(layerId);
-            const latRad = (lonLat[1] * Math.PI) / 180;
-            const metersPerUnit = Math.cos(latRad) * 111320;
-            const distanceInMeters = minDistance * metersPerUnit;
             
             allFeatures.push({
-              feature: closestFeature,
+              feature: feature,
               layerName: layerId,
               layerDisplayName: displayName,
-              distance: distanceInMeters / 1000,
-              distancePixels: minDistance,
-              properties: closestFeature.getProperties(),
+              distance: distanceInMeters / 1000, // En km
+              distancePixels: distanceInMeters, // Mantener para compatibilidad
+              properties: feature.getProperties(),
             });
-            layerResults[displayName] = 1;
-          } else {
-            layerResults[getLayerDisplayName(layerId)] = 0;
-          }
+          });
+          
+          layerResults[displayName] = foundFeatures.length;
         } else {
           layerResults[getLayerDisplayName(layerId)] = 0;
         }
@@ -400,54 +425,49 @@ export default function QueryTool({ map, activeTool, layerManager }) {
               throw parseError;
             }
 
-            // Calcular distancia euclidiana a cada feature y encontrar la más cercana
-            let closestFeature = null;
-            let minDistance = Infinity;
+            // Calcular distancia geodésica a cada feature y filtrar por radio fijo
+            const featuresInRange = [];
+            // Convertir el radio de unidades del mapa a metros aproximados para comparación geodésica
+            // Usamos la latitud del punto clickeado para la conversión
+            const latRad = (lonLat[1] * Math.PI) / 180;
+            const metersPerUnit = Math.cos(latRad) * 111320;
+            const searchRadiusMeters = searchRadiusMapUnits * metersPerUnit;
 
             features.forEach((feature) => {
               const geometry = feature.getGeometry();
-              let distance = Infinity;
+              let distanceInMeters;
 
               if (geometry instanceof Point) {
-                // Para puntos: distancia euclidiana en coordenadas del mapa
+                // Para puntos: distancia geodésica directa
                 const geomCoord = geometry.getCoordinates();
-                const dx = coordinate[0] - geomCoord[0];
-                const dy = coordinate[1] - geomCoord[1];
-                distance = Math.sqrt(dx * dx + dy * dy);
+                distanceInMeters = calculateGeodesicDistance(coordinate, geomCoord);
               } else {
-                // Para polígonos y líneas: distancia al punto más cercano en coordenadas del mapa
+                // Para polígonos y líneas: encontrar el punto más cercano y calcular distancia geodésica
                 const closestPoint = geometry.getClosestPoint(coordinate);
-                const dx = coordinate[0] - closestPoint[0];
-                const dy = coordinate[1] - closestPoint[1];
-                distance = Math.sqrt(dx * dx + dy * dy);
+                distanceInMeters = calculateGeodesicDistance(coordinate, closestPoint);
               }
 
-              if (distance < minDistance) {
-                minDistance = distance;
-                // Convertir distancia a metros para mostrar
-                // En EPSG:3857, las coordenadas están en metros en el ecuador
-                // Aproximamos multiplicando por el coseno de la latitud para mejor precisión
-                const center = map.getView().getCenter();
-                const centerLonLat = toLonLat(center, "EPSG:3857");
-                const latRad = (centerLonLat[1] * Math.PI) / 180;
-                const metersPerUnit = Math.cos(latRad) * 111320; // metros por unidad en esta latitud
-                const distanceInMeters = distance * metersPerUnit;
-                
+              // Solo incluir features que estén dentro del radio fijo (convertido a metros)
+              if (distanceInMeters <= searchRadiusMeters) {
                 const displayName = getLayerDisplayName(layerName);
-                closestFeature = { 
+                
+                featuresInRange.push({ 
                   feature, 
                   layerName,
                   layerDisplayName: displayName,
                   distance: distanceInMeters / 1000, // En km para mostrar
-                  distancePixels: distance, // Distancia en unidades del mapa (para comparación)
+                  distancePixels: distanceInMeters, // Mantener para compatibilidad
                   properties: feature.getProperties() 
-                };
+                });
               }
             });
 
-            if (closestFeature) {
-              allFeatures.push(closestFeature);
-              layerResults[getLayerDisplayName(layerName)] = 1;
+            // Agregar todas las features dentro del rango
+            if (featuresInRange.length > 0) {
+              featuresInRange.forEach(featureData => {
+                allFeatures.push(featureData);
+              });
+              layerResults[getLayerDisplayName(layerName)] = featuresInRange.length;
             } else {
               layerResults[getLayerDisplayName(layerName)] = 0;
             }
@@ -463,7 +483,7 @@ export default function QueryTool({ map, activeTool, layerManager }) {
         await Promise.all(queries);
       }
 
-      // Ordenar por distancia y tomar el más cercano de cada capa
+      // Ordenar por distancia (de menor a mayor)
       allFeatures.sort((a, b) => a.distance - b.distance);
 
       // Mostrar features en el mapa
@@ -477,8 +497,8 @@ export default function QueryTool({ map, activeTool, layerManager }) {
 
       setQueryResults({
         message: allFeatures.length > 0
-          ? `Se encontraron ${allFeatures.length} elemento(s) más cercano(s) en ${Object.keys(layerResults || {}).filter(k => layerResults[k] === 1).length} capa(s)`
-          : "No se encontraron elementos cerca del punto seleccionado",
+          ? `Se encontraron ${allFeatures.length} elemento(s) en ${Object.keys(layerResults).filter(k => layerResults[k] > 0).length} capa(s)`
+          : "No se encontraron elementos en el punto seleccionado",
         features: allFeatures,
         layerResults: layerResults || {},
       });

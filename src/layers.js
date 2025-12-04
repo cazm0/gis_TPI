@@ -70,17 +70,22 @@ export const layersConfig = [
   { id: "gisTPI:Limite_Politico_Administrativo_Lim", title: "Límite Político Administrativo", group: "Territorio", emoji: "🗺️", geometryType: "LineString" },
   { id: "gisTPI:Provincias", title: "Provincias", group: "Territorio", emoji: "🗺️", geometryType: "Polygon" },
   { id: "gisTPI:Pais_Lim", title: "País Límite", group: "Territorio", emoji: "🗺️", geometryType: "Polygon" },
-  
-  // Suelos - Clasificación de tipos de suelo según características físicas
-  { id: "gisTPI:Sue_Costero", title: "Suelo Costero", group: "Suelos", emoji: "🌍", geometryType: "Polygon" },
-  { id: "gisTPI:Sue_No_Consolidado", title: "Suelo No Consolidado", group: "Suelos", emoji: "🌍", geometryType: "Polygon" },
-  { id: "gisTPI:Sue_congelado", title: "Suelo Congelado", group: "Suelos", emoji: "🌍", geometryType: "Polygon" },
-  { id: "gisTPI:Sue_consolidado", title: "Suelo Consolidado", group: "Suelos", emoji: "🌍", geometryType: "Polygon" },
-    
+
+  // Suelos
+  { id: "gisTPI:Sue_Costero", title: "Suelo Costero", group: "Suelos", emoji: "🌍" },
+  { id: "gisTPI:Sue_No_Consolidado", title: "Suelo No Consolidado", group: "Suelos", emoji: "🌍" },
+  { id: "gisTPI:Sue_congelado", title: "Suelo Congelado", group: "Suelos", emoji: "🌍" },
+  { id: "gisTPI:Sue_consolidado", title: "Suelo Consolidado", group: "Suelos", emoji: "🌍" },
+
   // Vegetación - Cobertura vegetal del territorio (arbórea, arbustiva, cultivos, etc.)
-  { id: "gisTPI:Veg_Suelo_Desnudo", title: "Vegetación Suelo Desnudo", group: "Vegetación", emoji: "🌍", geometryType: "Polygon" },
-  { id: "gisTPI:Veg_Arborea", title: "Vegetación Arbórea", group: "Vegetación", emoji: "🌳", geometryType: "Polygon" },
-  { id: "gisTPI:Veg_Arbustiva", title: "Vegetación Arbustiva", group: "Vegetación", emoji: "🌳", geometryType: "Polygon" },
+  { id: "gisTPI:Veg_Suelo_Desnudo", title: "Vegetación Suelo Desnudo", group: "Suelos", emoji: "🌳" },
+  { id: "gisTPI:Veg_Arborea", title: "Vegetación Arbórea", group: "Vegetación", emoji: "🌳" },
+  { id: "gisTPI:Veg_Arbustiva", title: "Vegetación Arbustiva", group: "Vegetación", emoji: "🌳" },
+  
+  // Capas de Usuario (PostGIS)
+  { id: "gisTPI:capa_usuario", title: "Capa Usuario (Puntos)", group: "Usuario", emoji: "👤" },
+  { id: "gisTPI:capa_usuario_linea", title: "Capa Usuario (Líneas)", group: "Usuario", emoji: "👤" },
+  { id: "gisTPI:capa_usuario_poligono", title: "Capa Usuario (Polígonos)", group: "Usuario", emoji: "👤" },
 ];
 
 /**
