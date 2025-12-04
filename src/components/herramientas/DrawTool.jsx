@@ -5,7 +5,7 @@ import { Draw } from "ol/interaction";
 import { Style, Stroke, Fill, Circle as CircleStyle } from "ol/style";
 import { GeoJSON } from "ol/format";
 import { Point, LineString, Polygon } from "ol/geom";
-import { URL_WFS } from "../../config";
+import { URL_WFS, URL_OGC, GEOSERVER_REST, GEOSERVER_WORKSPACE, GEOSERVER_DATASTORE } from "../../config";
 import "./DrawTool.css";
 
 // Cache para tipos de geometría de capas
@@ -38,6 +38,154 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
   const [featureAttributes, setFeatureAttributes] = useState({}); // Valores de atributos para la feature actual
   const [showAttributesForm, setShowAttributesForm] = useState(false);
   const hintRef = useRef(null);
+
+  // Función para guardar feature en PostGIS usando WFS Transaction
+  const saveFeatureToPostGIS = async (feature, layerName) => {
+    const format = new GeoJSON();
+    const geometry = feature.getGeometry();
+    
+    // Convertir geometría a GeoJSON en EPSG:4326
+    const featureJSON = format.writeFeature(feature, {
+      featureProjection: "EPSG:3857",
+      dataProjection: "EPSG:4326",
+    });
+
+    const featureObj = JSON.parse(featureJSON);
+    const coordinates = featureObj.geometry.coordinates;
+
+    // Construir XML GML para la geometría según el tipo
+    let gmlGeometry = "";
+    if (geometry instanceof Point) {
+      gmlGeometry = `<gml:Point srsName="EPSG:4326"><gml:pos>${coordinates[1]} ${coordinates[0]}</gml:pos></gml:Point>`;
+    } else if (geometry instanceof LineString) {
+      const posList = coordinates.map(c => `${c[1]} ${c[0]}`).join(" ");
+      gmlGeometry = `<gml:LineString srsName="EPSG:4326"><gml:posList>${posList}</gml:posList></gml:LineString>`;
+    } else if (geometry instanceof Polygon) {
+      const exteriorRing = coordinates[0].map(c => `${c[1]} ${c[0]}`).join(" ");
+      gmlGeometry = `<gml:Polygon srsName="EPSG:4326"><gml:exterior><gml:LinearRing><gml:posList>${exteriorRing}</gml:posList></gml:LinearRing></gml:exterior></gml:Polygon>`;
+    }
+
+    const layerNameOnly = layerName.split(':')[1];
+    // El campo de geometría en las tablas se llama "geom" (según las imágenes)
+    const geomFieldName = "geom";
+
+    // Calcular bbox aproximado
+    let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
+    const processCoords = (coords) => {
+      if (Array.isArray(coords[0])) {
+        coords.forEach(c => processCoords(c));
+      } else {
+        const [lon, lat] = coords;
+        minLon = Math.min(minLon, lon);
+        maxLon = Math.max(maxLon, lon);
+        minLat = Math.min(minLat, lat);
+        maxLat = Math.max(maxLat, lat);
+      }
+    };
+    processCoords(coordinates);
+
+    const transactionXML = `<?xml version="1.0" encoding="UTF-8"?>
+<wfs:Transaction service="WFS" version="1.1.0"
+  xmlns:wfs="http://www.opengis.net/wfs"
+  xmlns:gml="http://www.opengis.net/gml"
+  xmlns:ogc="http://www.opengis.net/ogc"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.opengis.net/wfs http://schemas.opengis.net/wfs/1.1.0/wfs.xsd">
+  <wfs:Insert>
+    <${layerName}>
+      <gml:boundedBy>
+        <gml:Envelope srsName="EPSG:4326">
+          <gml:lowerCorner>${minLat} ${minLon}</gml:lowerCorner>
+          <gml:upperCorner>${maxLat} ${maxLon}</gml:upperCorner>
+        </gml:Envelope>
+      </gml:boundedBy>
+      <${geomFieldName}>${gmlGeometry}</${geomFieldName}>
+    </${layerName}>
+  </wfs:Insert>
+</wfs:Transaction>`;
+
+    const response = await fetch(URL_WFS, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/xml",
+      },
+      body: transactionXML,
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error("Error response:", errorText);
+      throw new Error(`Error del servidor: ${response.status} - ${errorText.substring(0, 200)}`);
+    }
+
+    const resultXML = await response.text();
+    if (resultXML.includes("Exception") || resultXML.includes("error")) {
+      console.error("Error XML:", resultXML);
+      throw new Error("El servidor reportó un error al guardar el feature");
+    }
+
+    return true;
+  };
+
+  // Función para refrescar capa en GeoServer usando REST API
+  const refreshGeoServerLayer = async (layerName) => {
+    try {
+      // Credenciales de GeoServer (puedes moverlas a config.js si prefieres)
+      const username = 'admin';
+      const password = 'geoserver';
+      const auth = btoa(`${username}:${password}`);
+      
+      // Resetear el DataStore para forzar recarga de todas las capas
+      const resetUrl = `${GEOSERVER_REST}/workspaces/${GEOSERVER_WORKSPACE}/datastores/${GEOSERVER_DATASTORE}/reset`;
+      
+      const response = await fetch(resetUrl, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        console.warn('No se pudo refrescar GeoServer, pero el feature se guardó correctamente');
+        // No lanzar error, solo loguear
+      } else {
+        console.log(`Capa ${layerName} refrescada en GeoServer`);
+      }
+    } catch (error) {
+      console.warn('Error refrescando GeoServer:', error);
+      // No lanzar error, el feature ya se guardó
+    }
+    
+    // También refrescar la capa WMS en el cliente
+    refreshWMSLayerInClient(layerName);
+  };
+
+  // Función para refrescar capa WMS en el cliente después de guardar
+  const refreshWMSLayerInClient = (layerName) => {
+    if (!layerManager) return;
+    
+    // Buscar la capa en el LayerManager
+    const layerId = layerName; // ej: "gisTPI:capa_usuario"
+    const layer = layerManager.layers[layerId];
+    
+    if (layer && layer.getSource) {
+      const source = layer.getSource();
+      // Forzar actualización de la capa WMS cambiando un parámetro temporal
+      const params = source.getParams();
+      // Agregar timestamp para forzar refresh
+      params._t = Date.now();
+      source.updateParams(params);
+      
+      // Si la capa está visible, forzar redibujado
+      if (layer.getVisible()) {
+        // Pequeño delay para dar tiempo a GeoServer de actualizar
+        setTimeout(() => {
+          source.changed();
+        }, 500);
+      }
+    }
+  };
 
   // Crear capa temporal para dibujar
   useEffect(() => {
@@ -138,13 +286,57 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
     map.addInteraction(draw);
     drawRef.current = draw;
 
-    draw.on("drawend", (event) => {
+    draw.on("drawend", async (event) => {
       const feature = event.feature;
       setDrawnFeature(feature);
-      setShowDialog(true);
-      // Desactivar la herramienta temporalmente
-      if (onToolChange) {
-        onToolChange(null);
+      
+      // Guardar automáticamente en la capa correspondiente según el tipo de geometría
+      const geometry = feature.getGeometry();
+      let targetLayerName;
+      
+      if (geometry instanceof Point) {
+        targetLayerName = "gisTPI:capa_usuario";
+      } else if (geometry instanceof LineString) {
+        targetLayerName = "gisTPI:capa_usuario_linea";
+      } else if (geometry instanceof Polygon) {
+        targetLayerName = "gisTPI:capa_usuario_poligono";
+      }
+      
+      if (targetLayerName) {
+        try {
+          setIsSaving(true);
+          await saveFeatureToPostGIS(feature, targetLayerName);
+          
+          // Refrescar la capa en GeoServer y en el cliente
+          await refreshGeoServerLayer(targetLayerName);
+          
+          alert(`Feature guardado exitosamente en ${targetLayerName.split(':')[1]}`);
+          
+          // Limpiar y cerrar
+          drawLayerRef.current?.getSource().clear();
+          setDrawnFeature(null);
+          
+          // Notificar cambio
+          if (layerManager && layerManager.onChange) {
+            layerManager.onChange();
+          }
+        } catch (error) {
+          console.error("Error guardando feature:", error);
+          alert(`Error al guardar: ${error.message}`);
+          // Si falla, mostrar el diálogo para que el usuario intente de nuevo
+          setShowDialog(true);
+          if (onToolChange) {
+            onToolChange(null);
+          }
+        } finally {
+          setIsSaving(false);
+        }
+      } else {
+        // Si no se puede determinar el tipo, mostrar diálogo
+        setShowDialog(true);
+        if (onToolChange) {
+          onToolChange(null);
+        }
       }
     });
 

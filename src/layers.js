@@ -72,6 +72,11 @@ export const layersConfig = [
   // Vegetación
   { id: "gisTPI:Veg_Arborea", title: "Vegetación Arbórea", group: "Vegetación", emoji: "🌳" },
   { id: "gisTPI:Veg_Arbustiva", title: "Vegetación Arbustiva", group: "Vegetación", emoji: "🌳" },
+  
+  // Capas de Usuario (PostGIS)
+  { id: "gisTPI:capa_usuario", title: "Capa Usuario (Puntos)", group: "Usuario", emoji: "👤" },
+  { id: "gisTPI:capa_usuario_linea", title: "Capa Usuario (Líneas)", group: "Usuario", emoji: "👤" },
+  { id: "gisTPI:capa_usuario_poligono", title: "Capa Usuario (Polígonos)", group: "Usuario", emoji: "👤" },
 ];
 
 // Configuración de grupos con emojis
