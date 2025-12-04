@@ -103,13 +103,13 @@ export default function ActiveLayersLegend({ layerManager, update }) {
               VERSION: '1.0.0',
               FORMAT: 'image/png',
               LAYER: layer.name,
-              WIDTH: '20',
-              HEIGHT: '20',
+              WIDTH: '200',
+              HEIGHT: '50',
               TRANSPARENT: 'true',
-              LEGEND_OPTIONS: 'fontName:Arial;fontSize:10;fontColor:0x000000;dpi:96;forceLabels:off'
+              LEGEND_OPTIONS: 'fontName:Arial;fontSize:12;fontColor:0x000000;dpi:96;forceLabels:on'
             });
 
-            const legendUrl = `/geoserver/gisTPI/wms?${params.toString()}`;
+            const legendUrl = `/geoserver/gis_tpi/wms?${params.toString()}`;
             
             // Verificar que la imagen se puede cargar
             const img = new Image();
@@ -306,49 +306,43 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                     <div className="legend-item-content">
                       <div className="legend-drag-handle">⋮⋮</div>
                     {layer.isUserLayer ? (
-                      <div className="legend-symbol-container">
-                        {geometryType === 'Polygon' ? (
-                          <div 
-                            className="legend-symbol user-layer-symbol polygon-symbol"
-                            style={{
-                              backgroundColor: currentColor,
-                              opacity: currentOpacity,
-                              width: '14px',
-                              height: '14px',
-                              borderRadius: '1px',
-                              border: '1px solid #000'
-                            }}
-                          ></div>
-                        ) : geometryType === 'LineString' ? (
-                          <div 
-                            className="legend-symbol user-layer-symbol line-symbol"
-                            style={{
-                              backgroundColor: currentColor,
-                              opacity: currentOpacity,
-                              width: '16px',
-                              height: '2px',
-                              transform: 'rotate(135deg)',
-                              transformOrigin: 'center'
-                            }}
-                          ></div>
-                        ) : (
-                          <div 
-                            className="legend-symbol user-layer-symbol point-symbol"
-                            style={{
-                              backgroundColor: currentColor,
-                              opacity: currentOpacity,
-                              width: '8px',
-                              height: '8px',
-                              borderRadius: '1px'
-                            }}
-                          ></div>
-                        )}
-                      </div>
-                    ) : (
-                      <div className="legend-symbol-container">
-                        <div className="legend-symbol-placeholder" style={{ width: '20px', height: '20px' }}></div>
-                      </div>
-                    )}
+                      geometryType === 'Polygon' ? (
+                        <div 
+                          className="legend-symbol user-layer-symbol polygon-symbol"
+                          style={{
+                            backgroundColor: currentColor,
+                            opacity: currentOpacity,
+                            width: '14px',
+                            height: '14px',
+                            borderRadius: '1px',
+                            border: '1px solid #000'
+                          }}
+                        ></div>
+                      ) : geometryType === 'LineString' ? (
+                        <div 
+                          className="legend-symbol user-layer-symbol line-symbol"
+                          style={{
+                            backgroundColor: currentColor,
+                            opacity: currentOpacity,
+                            width: '16px',
+                            height: '2px',
+                            transform: 'rotate(135deg)',
+                            transformOrigin: 'center'
+                          }}
+                        ></div>
+                      ) : (
+                        <div 
+                          className="legend-symbol user-layer-symbol point-symbol"
+                          style={{
+                            backgroundColor: currentColor,
+                            opacity: currentOpacity,
+                            width: '8px',
+                            height: '8px',
+                            borderRadius: '1px'
+                          }}
+                        ></div>
+                      )
+                    ) : null}
                     <span className="legend-label">{layer.displayName}</span>
                   </div>
                   {showDropIndicatorAfter && (
@@ -452,8 +446,6 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                   <div className="legend-item-content" onClick={() => setEditingLayer(layer)} title="Clic para editar color y transparencia">
                     <div className="legend-drag-handle">⋮⋮</div>
                     {legend.type === 'geoserver' && legend.url ? (
-                  <>
-                    <div className="legend-symbol-container">
                       <img
                         src={legend.url}
                         alt={`Leyenda de ${legend.displayName}`}
@@ -461,20 +453,12 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                         style={{ opacity: layer.isUserLayer ? currentOpacity : 1 }}
                         onError={(e) => {
                           e.target.style.display = 'none';
-                          e.target.nextSibling.style.display = 'block';
                         }}
                       />
-                      <div className="legend-symbol-placeholder" style={{ display: 'none' }}></div>
-                    </div>
-                    <span className="legend-label">{legend.displayName}</span>
-                  </>
-                ) : legend.type === 'user' ? (
-                  <>
-                    <div className="legend-symbol-container">
-                      {(() => {
+                    ) : legend.type === 'user' ? (
+                      (() => {
                         const geometryType = legend.geometryType || layer.geometryType || 'Point';
                         if (geometryType === 'Polygon') {
-                          // Cuadrado para polígonos (más pequeño, con borde negro)
                           return (
                             <div 
                               className="legend-symbol user-layer-symbol polygon-symbol"
@@ -489,7 +473,6 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                             ></div>
                           );
                         } else if (geometryType === 'LineString') {
-                          // Línea diagonal a 45 grados (de abajo izquierda a arriba derecha)
                           return (
                             <div 
                               className="legend-symbol user-layer-symbol line-symbol"
@@ -504,7 +487,6 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                             ></div>
                           );
                         } else {
-                          // Cuadrado muy pequeño para puntos
                           return (
                             <div 
                               className="legend-symbol user-layer-symbol point-symbol"
@@ -518,18 +500,9 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                             ></div>
                           );
                         }
-                      })()}
-                    </div>
+                      })()
+                    ) : null}
                     <span className="legend-label">{legend.displayName}</span>
-                  </>
-                ) : (
-                  <>
-                    <div className="legend-symbol-container">
-                      <div className="legend-symbol-placeholder"></div>
-                    </div>
-                    <span className="legend-label">{legend.displayName}</span>
-                  </>
-                )}
                   </div>
                   {dragOverIndex === index + 1 && draggedLayerId !== layer.id && (
                     <div className="legend-drop-indicator"></div>

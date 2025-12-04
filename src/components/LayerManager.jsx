@@ -835,9 +835,9 @@ export default class LayerManager {
   }
 
   /**
-   * Obtiene todas las capas visibles ordenadas por tipo de geometría y z-index
-   * Orden de renderizado: Puntos (arriba) -> Líneas (medio) -> Polígonos (abajo)
-   * Dentro de cada grupo, se ordena por z-index (mayor a menor)
+   * Obtiene todas las capas visibles ordenadas por z-index
+   * Las capas con mayor z-index aparecen primero (se renderizan arriba)
+   * El orden en la lista refleja el orden de renderizado en el mapa
    * @returns {Array} Array de objetos con información de capas visibles
    */
   getVisibleLayersOrdered() {
@@ -873,20 +873,9 @@ export default class LayerManager {
       }
     });
     
-    // Ordenar por tipo de geometría primero, luego por z-index dentro de cada grupo
-    // Orden: Puntos (arriba) -> Líneas (medio) -> Polígonos (abajo)
-    const geometryOrder = { 'Point': 0, 'LineString': 1, 'Polygon': 2, null: 1.5 }; // null (GeoServer) va entre líneas y polígonos
-    
+    // Ordenar SOLO por z-index (mayor a menor)
+    // Las capas con mayor z-index aparecen primero y se renderizan arriba
     return visible.sort((a, b) => {
-      const aOrder = geometryOrder[a.geometryType] ?? 1.5;
-      const bOrder = geometryOrder[b.geometryType] ?? 1.5;
-      
-      // Primero ordenar por tipo de geometría
-      if (aOrder !== bOrder) {
-        return aOrder - bOrder;
-      }
-      
-      // Si son del mismo tipo, ordenar por z-index (mayor a menor)
       return b.zIndex - a.zIndex;
     });
   }
@@ -894,9 +883,9 @@ export default class LayerManager {
   /**
    * Mueve una capa a una posición específica en el orden de renderizado
    * Calcula el z-index apropiado para que la capa quede en la posición deseada
-   * Respeta el orden por tipo de geometría (no permite mezclar tipos)
+   * Permite reordenamiento libre sin restricciones de tipo de geometría
    * @param {string} layerId - ID de la capa a mover
-   * @param {number} targetIndex - Índice objetivo en la lista de capas visibles
+   * @param {number} targetIndex - Índice objetivo en la lista de capas visibles (0 = arriba, mayor = abajo)
    */
   moveLayerToPosition(layerId, targetIndex) {
     const orderedLayers = this.getVisibleLayersOrdered();
@@ -906,46 +895,6 @@ export default class LayerManager {
     
     const layer = this.layers[layerId] || this.userLayers[layerId];
     if (!layer) return;
-    
-    // Obtener el tipo de geometría de la capa que se está moviendo
-    const movingLayerGeometryType = layer.get('geometryType') || null;
-    
-    // Si la capa tiene un tipo de geometría, ajustar el targetIndex para que respete el orden por tipo
-    if (movingLayerGeometryType) {
-      const geometryOrder = { 'Point': 0, 'LineString': 1, 'Polygon': 2 };
-      const targetOrder = geometryOrder[movingLayerGeometryType];
-      
-      // Encontrar el rango de índices válidos para este tipo de geometría
-      const layersWithoutCurrent = orderedLayers.filter(l => l.id !== layerId);
-      const sameTypeLayers = layersWithoutCurrent.filter(l => {
-        const layerGeomType = l.geometryType || null;
-        return geometryOrder[layerGeomType] === targetOrder;
-      });
-      
-      // Si hay capas del mismo tipo, ajustar el targetIndex para que esté dentro del grupo
-      if (sameTypeLayers.length > 0) {
-        // Encontrar la posición correcta dentro del grupo del mismo tipo
-        const firstSameTypeIndex = layersWithoutCurrent.findIndex(l => {
-          const layerGeomType = l.geometryType || null;
-          return geometryOrder[layerGeomType] === targetOrder;
-        });
-        const lastSameTypeIndex = firstSameTypeIndex + sameTypeLayers.length - 1;
-        
-        // Ajustar targetIndex para que esté dentro del rango del grupo
-        if (targetIndex < firstSameTypeIndex) {
-          targetIndex = firstSameTypeIndex;
-        } else if (targetIndex > lastSameTypeIndex + 1) {
-          targetIndex = lastSameTypeIndex + 1;
-        }
-      } else {
-        // Si no hay capas del mismo tipo, insertar al principio del grupo correspondiente
-        const insertIndex = layersWithoutCurrent.findIndex(l => {
-          const layerGeomType = l.geometryType || null;
-          return geometryOrder[layerGeomType] > targetOrder;
-        });
-        targetIndex = insertIndex === -1 ? layersWithoutCurrent.length : insertIndex;
-      }
-    }
     
     // Asegurar que el targetIndex esté en el rango válido (0 a length, permitiendo insertar al final)
     targetIndex = Math.max(0, Math.min(targetIndex, orderedLayers.length));
@@ -966,13 +915,15 @@ export default class LayerManager {
       const maxZIndex = layersWithoutCurrent.length > 0 
         ? Math.max(...layersWithoutCurrent.map(l => l.zIndex || 0)) 
         : 0;
-      newZIndex = maxZIndex + 1;
+      newZIndex = maxZIndex + 10; // Incremento mayor para evitar conflictos
     } else if (targetIndex >= layersWithoutCurrent.length) {
       // Mover al final (abajo en la lista): z-index mínimo para renderizarse por debajo
+      // IMPORTANTE: El z-index mínimo debe ser 0 para que no quede debajo del mapa base (z-index -1)
       const minZIndex = layersWithoutCurrent.length > 0 
         ? Math.min(...layersWithoutCurrent.map(l => l.zIndex || 0)) 
         : 0;
-      newZIndex = Math.min(0, minZIndex - 1);
+      // Asegurar que el z-index mínimo sea 0 (no negativo) para que no quede debajo del mapa base
+      newZIndex = Math.max(0, minZIndex - 10); // Decremento mayor, pero mínimo 0
     } else {
       // Mover a una posición intermedia: z-index entre las dos capas adyacentes
       // Como la lista está ordenada de mayor a menor z-index:
@@ -986,7 +937,7 @@ export default class LayerManager {
         const baseZIndex = layersWithoutCurrent.length > 0 
           ? (layersWithoutCurrent[0]?.zIndex || 0) 
           : 0;
-        newZIndex = baseZIndex - targetIndex;
+        newZIndex = Math.max(0, baseZIndex - targetIndex * 10); // Asegurar mínimo 0
         layer.setZIndex(newZIndex);
         if (this.onChange) {
           this.onChange();
@@ -1000,13 +951,15 @@ export default class LayerManager {
       // Calcular z-index intermedio
       // Queremos que la capa se inserte entre prevLayer (arriba) y nextLayer (abajo)
       // Por lo tanto, el z-index debe ser menor que prevZIndex pero mayor que nextZIndex
-      if (Math.abs(prevZIndex - nextZIndex) < 2) {
-        // Si están muy juntos, usar un incremento fijo
-        // Asegurar que sea menor que prevZIndex y mayor que nextZIndex
-        newZIndex = nextZIndex + 0.5;
-        // Si esto no funciona, usar un valor más bajo
+      if (Math.abs(prevZIndex - nextZIndex) < 1) {
+        // Si están muy juntos, usar un incremento fijo más grande
+        newZIndex = nextZIndex + (prevZIndex - nextZIndex) / 2;
+        // Asegurar que esté en el rango correcto
         if (newZIndex >= prevZIndex) {
-          newZIndex = prevZIndex - 0.5;
+          newZIndex = Math.max(0, prevZIndex - 1); // Asegurar mínimo 0
+        }
+        if (newZIndex <= nextZIndex) {
+          newZIndex = Math.max(0, nextZIndex + 1); // Asegurar mínimo 0
         }
       } else {
         // Calcular el punto medio
@@ -1020,12 +973,15 @@ export default class LayerManager {
       }
       
       // Asegurar que no sea exactamente igual a ninguno de los adyacentes
-      if (newZIndex === prevZIndex) {
-        newZIndex = prevZIndex - 0.1;
+      if (newZIndex === prevZIndex || newZIndex >= prevZIndex) {
+        newZIndex = Math.max(0, prevZIndex - 1); // Asegurar mínimo 0
       }
-      if (newZIndex === nextZIndex) {
-        newZIndex = nextZIndex + 0.1;
+      if (newZIndex === nextZIndex || newZIndex <= nextZIndex) {
+        newZIndex = Math.max(0, nextZIndex + 1); // Asegurar mínimo 0
       }
+      
+      // Asegurar que el z-index final nunca sea negativo (debe estar por encima del mapa base)
+      newZIndex = Math.max(0, newZIndex);
     }
     
     layer.setZIndex(newZIndex);
@@ -1081,10 +1037,11 @@ export default class LayerManager {
         newZIndex = (nextTypeLayer.zIndex || 0) + 1;
       } else {
         // No hay capas del siguiente tipo: poner al final (z-index mínimo)
+        // IMPORTANTE: El z-index mínimo debe ser 0 para que no quede debajo del mapa base (z-index -1)
         const allOtherLayers = orderedLayers.filter(l => l.id !== layerId);
         if (allOtherLayers.length > 0) {
           const minZIndex = Math.min(...allOtherLayers.map(l => l.zIndex || 0));
-          newZIndex = Math.min(0, minZIndex - 1);
+          newZIndex = Math.max(0, minZIndex - 1); // Asegurar mínimo 0 para no quedar debajo del mapa base
         } else {
           newZIndex = 0;
         }
