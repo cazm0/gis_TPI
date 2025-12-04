@@ -4,6 +4,15 @@ import View from "ol/View";
 import { fromLonLat } from "ol/proj";
 import { defaults as defaultControls } from "ol/control";
 import { defaults as defaultInteractions, DragRotate, DragPan } from "ol/interaction";
+import VectorSource from "ol/source/Vector";
+import VectorLayer from "ol/layer/Vector";
+import Feature from "ol/Feature";
+import Point from "ol/geom/Point";
+import { Circle as CircleGeom } from "ol/geom";
+import Style from "ol/style/Style";
+import Fill from "ol/style/Fill";
+import Stroke from "ol/style/Stroke";
+import { Circle as CircleStyle } from "ol/style";
 
 import BaseMap from "./BaseMap";
 import LayerManager from "../LayerManager";
@@ -31,6 +40,8 @@ export default function MapContainer() {
   const [drawGeometryType, setDrawGeometryType] = useState("Point");
   const [measureType, setMeasureType] = useState("length");
   const measureToolRef = useRef(null);
+  const [isLocating, setIsLocating] = useState(false);
+  const [locationLayer, setLocationLayer] = useState(null);
 
   useEffect(() => {
     const view = new View({
@@ -151,12 +162,21 @@ export default function MapContainer() {
       mapElement.addEventListener('mouseleave', handlePointerUp, true);
     }
 
+    // Capa para la ubicación del usuario (punto + círculo de precisión)
+    const locSource = new VectorSource();
+    const locLayer = new VectorLayer({
+      source: locSource,
+      zIndex: 1000,
+    });
+    mapObj.addLayer(locLayer);
+
     const manager = new LayerManager(mapObj);
 
     manager.onChange = () => {
       setUpdate((u) => u + 1);
     };
 
+    setLocationLayer(locLayer);
     setLayerManager(manager);
     setMap(mapObj);
 
@@ -172,6 +192,7 @@ export default function MapContainer() {
         mapElement.removeEventListener('mouseup', handlePointerUp, true);
         mapElement.removeEventListener('mouseleave', handlePointerUp, true);
       }
+      mapObj.removeLayer(locLayer);
       mapObj.setTarget(null);
     };
   }, []);
@@ -187,6 +208,94 @@ export default function MapContainer() {
     setBaseLayer(newBase);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [baseStyle, map]); // baseLayer se excluye intencionalmente para evitar loop infinito
+
+  const handleGoToMyLocation = () => {
+    if (!map || !navigator.geolocation) {
+      alert("La geolocalización no está soportada en este navegador.");
+      return;
+    }
+
+    setIsLocating(true);
+
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const { latitude, longitude, accuracy } = position.coords;
+        const view = map.getView();
+        const center = fromLonLat([longitude, latitude]);
+
+        // Actualizar capa de ubicación si existe
+        if (locationLayer) {
+          const source = locationLayer.getSource();
+          source.clear();
+
+          const pointFeature = new Feature({
+            geometry: new Point(center),
+          });
+
+          let accuracyFeature = null;
+          if (accuracy && !isNaN(accuracy)) {
+            accuracyFeature = new Feature({
+              geometry: new CircleGeom(center, accuracy),
+            });
+          }
+
+          const pointStyle = new Style({
+            image: new CircleStyle({
+              radius: 6,
+              fill: new Fill({
+                color: "#1a73e8",
+              }),
+              stroke: new Stroke({
+                color: "#ffffff",
+                width: 2,
+              }),
+            }),
+          });
+
+          const accuracyStyle = new Style({
+            fill: new Fill({
+              color: "rgba(66, 133, 244, 0.15)",
+            }),
+            stroke: new Stroke({
+              color: "rgba(66, 133, 244, 0.6)",
+              width: 1,
+            }),
+          });
+
+          pointFeature.setStyle(pointStyle);
+          if (accuracyFeature) {
+            accuracyFeature.setStyle(accuracyStyle);
+            source.addFeature(accuracyFeature);
+          }
+          source.addFeature(pointFeature);
+        }
+
+        view.animate({
+          center,
+          zoom: Math.max(view.getZoom() || 5, 15),
+          duration: 1000,
+        });
+
+        setIsLocating(false);
+      },
+      (error) => {
+        console.error("Error al obtener la ubicación:", error);
+        let message = "No se pudo obtener la ubicación.";
+        if (error.code === error.PERMISSION_DENIED) {
+          message = "Permiso de geolocalización denegado.";
+        } else if (error.code === error.TIMEOUT) {
+          message = "La solicitud de geolocalización expiró.";
+        }
+        alert(message);
+        setIsLocating(false);
+      },
+      {
+        enableHighAccuracy: true,
+        timeout: 10000,
+        maximumAge: 0,
+      }
+    );
+  };
 
   return (
     <div style={{ display: "flex", height: "100vh", overflow: "hidden" }}>
@@ -272,6 +381,43 @@ export default function MapContainer() {
             <PrintTool map={map} layerManager={layerManager} activeTool={activeTool} />
             <ActiveLayersLegend layerManager={layerManager} update={update} />
             <MapTypeControl activeStyle={baseStyle} onChange={setBaseStyle} />
+            <button
+              type="button"
+              onClick={handleGoToMyLocation}
+              disabled={isLocating}
+              style={{
+                position: "absolute",
+                bottom: "70px",
+                left: "20px",
+                zIndex: 1000,
+                width: "36px",
+                height: "36px",
+                borderRadius: "50%",
+                border: "none",
+                backgroundColor: "#ffffff",
+                cursor: isLocating ? "default" : "pointer",
+                boxShadow: "0 2px 6px rgba(0,0,0,0.3)",
+                padding: 0,
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "center",
+                color: isLocating ? "#a0a0a0" : "#5f6368",
+              }}
+              title="Ir a mi ubicación"
+            >
+              <svg
+                width="20"
+                height="20"
+                viewBox="0 0 24 24"
+                fill="none"
+                xmlns="http://www.w3.org/2000/svg"
+              >
+                <path
+                  d="M12 8a4 4 0 100 8 4 4 0 000-8zm7 3h-1.07A5.994 5.994 0 0013 6.07V5a1 1 0 10-2 0v1.07A5.994 5.994 0 006.07 11H5a1 1 0 100 2h1.07A5.994 5.994 0 0011 17.93V19a1 1 0 102 0v-1.07A5.994 5.994 0 0017.93 13H19a1 1 0 100-2z"
+                  fill="currentColor"
+                />
+              </svg>
+            </button>
           </>
         )}
       </div>
