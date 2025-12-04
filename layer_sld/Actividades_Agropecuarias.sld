@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<StyledLayerDescriptor xmlns="http://www.opengis.net/sld" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:se="http://www.opengis.net/se" version="1.1.0" xsi:schemaLocation="http://www.opengis.net/sld http://schemas.opengis.net/sld/1.1.0/StyledLayerDescriptor.xsd" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:ogc="http://www.opengis.net/ogc">
+<StyledLayerDescriptor xmlns="http://www.opengis.net/sld" xsi:schemaLocation="http://www.opengis.net/sld http://schemas.opengis.net/sld/1.1.0/StyledLayerDescriptor.xsd" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" version="1.1.0" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:ogc="http://www.opengis.net/ogc" xmlns:se="http://www.opengis.net/se">
   <NamedLayer>
     <se:Name>Actividades_Agropecuarias</se:Name>
     <UserStyle>
@@ -21,12 +21,12 @@
               <se:Mark>
                 <se:WellKnownName>square</se:WellKnownName>
                 <se:Fill>
-                  <se:SvgParameter name="fill">#f86813</se:SvgParameter>
+                  <se:SvgParameter name="fill">#ff0000</se:SvgParameter>
                   <se:SvgParameter name="fill-opacity">0</se:SvgParameter>
                 </se:Fill>
                 <se:Stroke>
-                  <se:SvgParameter name="stroke">#f86813</se:SvgParameter>
-                  <se:SvgParameter name="stroke-width">0.5</se:SvgParameter>
+                  <se:SvgParameter name="stroke">#7e3600</se:SvgParameter>
+                  <se:SvgParameter name="stroke-width">2</se:SvgParameter>
                 </se:Stroke>
               </se:Mark>
               <se:Size>11</se:Size>
@@ -38,13 +38,13 @@
           <se:PointSymbolizer>
             <se:Graphic>
               <se:Mark>
-                <se:WellKnownName>square</se:WellKnownName>
+                <se:WellKnownName>cross2</se:WellKnownName>
                 <se:Fill>
-                  <se:SvgParameter name="fill">#ff8710</se:SvgParameter>
+                  <se:SvgParameter name="fill">#ff0000</se:SvgParameter>
                 </se:Fill>
                 <se:Stroke>
-                  <se:SvgParameter name="stroke">#ffffff</se:SvgParameter>
-                  <se:SvgParameter name="stroke-width">0.5</se:SvgParameter>
+                  <se:SvgParameter name="stroke">#7e3600</se:SvgParameter>
+                  <se:SvgParameter name="stroke-width">2</se:SvgParameter>
                 </se:Stroke>
               </se:Mark>
               <se:Size>7</se:Size>
@@ -71,8 +71,8 @@
                   <se:SvgParameter name="fill-opacity">0</se:SvgParameter>
                 </se:Fill>
                 <se:Stroke>
-                  <se:SvgParameter name="stroke">#f80000</se:SvgParameter>
-                  <se:SvgParameter name="stroke-width">0.5</se:SvgParameter>
+                  <se:SvgParameter name="stroke">#dacf04</se:SvgParameter>
+                  <se:SvgParameter name="stroke-width">2</se:SvgParameter>
                 </se:Stroke>
               </se:Mark>
               <se:Size>11</se:Size>
@@ -84,13 +84,13 @@
           <se:PointSymbolizer>
             <se:Graphic>
               <se:Mark>
-                <se:WellKnownName>square</se:WellKnownName>
+                <se:WellKnownName>cross2</se:WellKnownName>
                 <se:Fill>
                   <se:SvgParameter name="fill">#ff0000</se:SvgParameter>
                 </se:Fill>
                 <se:Stroke>
-                  <se:SvgParameter name="stroke">#ffffff</se:SvgParameter>
-                  <se:SvgParameter name="stroke-width">0.5</se:SvgParameter>
+                  <se:SvgParameter name="stroke">#dacf04</se:SvgParameter>
+                  <se:SvgParameter name="stroke-width">2</se:SvgParameter>
                 </se:Stroke>
               </se:Mark>
               <se:Size>7</se:Size>
@@ -113,12 +113,12 @@
               <se:Mark>
                 <se:WellKnownName>square</se:WellKnownName>
                 <se:Fill>
-                  <se:SvgParameter name="fill">#f86813</se:SvgParameter>
+                  <se:SvgParameter name="fill">#ff0000</se:SvgParameter>
                   <se:SvgParameter name="fill-opacity">0</se:SvgParameter>
                 </se:Fill>
                 <se:Stroke>
-                  <se:SvgParameter name="stroke">#00ff0c</se:SvgParameter>
-                  <se:SvgParameter name="stroke-width">0.5</se:SvgParameter>
+                  <se:SvgParameter name="stroke">#0fff00</se:SvgParameter>
+                  <se:SvgParameter name="stroke-width">2</se:SvgParameter>
                 </se:Stroke>
               </se:Mark>
               <se:Size>11</se:Size>
@@ -130,13 +130,13 @@
           <se:PointSymbolizer>
             <se:Graphic>
               <se:Mark>
-                <se:WellKnownName>square</se:WellKnownName>
+                <se:WellKnownName>cross2</se:WellKnownName>
                 <se:Fill>
-                  <se:SvgParameter name="fill">#36ff00</se:SvgParameter>
+                  <se:SvgParameter name="fill">#ff0000</se:SvgParameter>
                 </se:Fill>
                 <se:Stroke>
-                  <se:SvgParameter name="stroke">#ffffff</se:SvgParameter>
-                  <se:SvgParameter name="stroke-width">0.5</se:SvgParameter>
+                  <se:SvgParameter name="stroke">#0fff00</se:SvgParameter>
+                  <se:SvgParameter name="stroke-width">2</se:SvgParameter>
                 </se:Stroke>
               </se:Mark>
               <se:Size>7</se:Size>
