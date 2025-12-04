@@ -17,7 +17,8 @@ import { Draw } from "ol/interaction";
 import { Style, Stroke, Fill, Circle as CircleStyle } from "ol/style";
 import { GeoJSON } from "ol/format";
 import { Point, LineString, Polygon } from "ol/geom";
-import { URL_WFS, URL_OGC, GEOSERVER_REST, GEOSERVER_WORKSPACE, GEOSERVER_DATASTORE } from "../../config";
+import { URL_WFS, GEOSERVER_REST, GEOSERVER_WORKSPACE, GEOSERVER_DATASTORE } from "../../config";
+import { layersConfig } from "../../layers";
 import Modal from "../common/Modal";
 import "./DrawTool.css";
 
@@ -59,7 +60,10 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
   const [modal, setModal] = useState({ isOpen: false, message: "", type: "info", title: "" });
 
   // Función para guardar feature en PostGIS usando WFS Transaction
-  const saveFeatureToPostGIS = async (feature, layerName) => {
+  // Esta función ya no se usa directamente, el código está en saveFeature
+  // Se mantiene por compatibilidad pero se puede eliminar en el futuro
+  // eslint-disable-next-line no-unused-vars
+  const _saveFeatureToPostGIS = async (feature, layerNameOrId) => {
     const format = new GeoJSON();
     const geometry = feature.getGeometry();
     
@@ -84,8 +88,16 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
       gmlGeometry = `<gml:Polygon srsName="EPSG:4326"><gml:exterior><gml:LinearRing><gml:posList>${exteriorRing}</gml:posList></gml:LinearRing></gml:exterior></gml:Polygon>`;
     }
 
-    const layerNameOnly = layerName.split(':')[1];
-    // El campo de geometría en las tablas se llama "geom" (según las imágenes)
+    // Si es un ID de configuración, obtener el nombre activo real de GeoServer
+    let layerName = layerNameOrId;
+    if (layerManager && layerManager.getActiveLayerName) {
+      const activeName = layerManager.getActiveLayerName(layerNameOrId);
+      if (activeName) {
+        layerName = activeName;
+      }
+    }
+
+    // El campo de geometría en las tablas de usuario se llama "geom"
     const geomFieldName = "geom";
 
     // Calcular bbox aproximado
@@ -147,62 +159,170 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
   };
 
   // Función para refrescar capa en GeoServer usando REST API
-  const refreshGeoServerLayer = async (layerName) => {
+  const refreshGeoServerLayer = async (layerNameOrId) => {
+    // Obtener el nombre activo de la capa (con "0" si es necesario)
+    let layerNameForRefresh = layerNameOrId;
+    if (layerManager && layerManager.getActiveLayerName) {
+      const activeName = layerManager.getActiveLayerName(layerNameOrId);
+      if (activeName) {
+        layerNameForRefresh = activeName;
+      }
+    }
+    
+    // Extraer solo el nombre de la capa sin el workspace (ej: "capa_usuario0")
+    const layerNameOnly = layerNameForRefresh.split(':')[1] || layerNameForRefresh;
+    
+    // Credenciales de GeoServer
+    const username = 'admin';
+    const password = 'geoserver';
+    const auth = btoa(`${username}:${password}`);
+    
     try {
-      // Credenciales de GeoServer (puedes moverlas a config.js si prefieres)
-      const username = 'admin';
-      const password = 'geoserver';
-      const auth = btoa(`${username}:${password}`);
+      // Método 1: Recargar el FeatureType específico (equivalente a "Recargar feature type" en la UI)
+      // Este es el método más efectivo para forzar que GeoServer recargue los datos de PostGIS
+      const featureTypeUrl = `${GEOSERVER_REST}/workspaces/${GEOSERVER_WORKSPACE}/datastores/${GEOSERVER_DATASTORE}/featuretypes/${layerNameOnly}.xml`;
       
-      // Resetear el DataStore para forzar recarga de todas las capas
+      console.log('Recargando feature type en GeoServer:', featureTypeUrl);
+      
+      // Primero obtener la configuración actual del featuretype
+      const getResponse = await fetch(featureTypeUrl, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Basic ${auth}`,
+          'Content-Type': 'application/xml'
+        }
+      });
+      
+      if (getResponse.ok) {
+        const featureTypeXML = await getResponse.text();
+        
+        // Hacer PUT con la misma configuración para forzar reload del feature type
+        const putResponse = await fetch(featureTypeUrl, {
+          method: 'PUT',
+          headers: {
+            'Authorization': `Basic ${auth}`,
+            'Content-Type': 'application/xml'
+          },
+          body: featureTypeXML
+        });
+        
+        if (putResponse.ok) {
+          console.log(`✓ Feature type ${layerNameOnly} recargado en GeoServer`);
+        } else {
+          const errorText = await putResponse.text();
+          console.warn('Error al recargar feature type:', errorText);
+        }
+      } else {
+        console.warn('No se pudo obtener configuración del feature type:', getResponse.status);
+      }
+      
+      // Método 2: Resetear el datastore completo (más agresivo pero funciona)
       const resetUrl = `${GEOSERVER_REST}/workspaces/${GEOSERVER_WORKSPACE}/datastores/${GEOSERVER_DATASTORE}/reset`;
       
-      const response = await fetch(resetUrl, {
+      const resetResponse = await fetch(resetUrl, {
         method: 'POST',
         headers: {
           'Authorization': `Basic ${auth}`,
           'Content-Type': 'application/json'
         }
       });
-
-      if (!response.ok) {
-        console.warn('No se pudo refrescar GeoServer, pero el feature se guardó correctamente');
-        // No lanzar error, solo loguear
-      } else {
-        console.log(`Capa ${layerName} refrescada en GeoServer`);
+      
+      if (resetResponse.ok) {
+        console.log(`✓ Datastore ${GEOSERVER_DATASTORE} reseteado en GeoServer`);
       }
+      
     } catch (error) {
-      console.warn('Error refrescando GeoServer:', error);
-      // No lanzar error, el feature ya se guardó
+      console.warn('Error refrescando capa en GeoServer:', error.message);
+      console.warn('Los datos están guardados en PostgreSQL. Puede que necesites recargar manualmente en GeoServer.');
     }
     
-    // También refrescar la capa WMS en el cliente
-    refreshWMSLayerInClient(layerName);
+    // Refrescar la capa WMS en el cliente (esto es lo más importante para ver los cambios)
+    refreshWMSLayerInClient(layerNameForRefresh);
+    
+    // Segundo refresh después de un delay para asegurar que GeoServer haya procesado
+    setTimeout(() => {
+      refreshWMSLayerInClient(layerNameForRefresh);
+    }, 1500);
   };
 
   // Función para refrescar capa WMS en el cliente después de guardar
   const refreshWMSLayerInClient = (layerName) => {
-    if (!layerManager) return;
+    if (!layerManager || !map) return;
     
-    // Buscar la capa en el LayerManager
-    const layerId = layerName; // ej: "gisTPI:capa_usuario"
-    const layer = layerManager.layers[layerId];
+    // Buscar la capa por ID de configuración (el LayerManager usa el ID de config, no el nombre activo)
+    // Primero intentar encontrar el ID de configuración que corresponde a este nombre activo
+    let layerId = null;
+    let layer = null;
+    
+    // Si el nombre incluye "0", buscar el ID de configuración sin el "0"
+    if (layerName.includes('0')) {
+      const baseName = layerName.replace('0', '');
+      layerId = baseName;
+      layer = layerManager.layers[baseName];
+    }
+    
+    // Si no se encuentra, intentar con el nombre exacto
+    if (!layer) {
+      layerId = layerName;
+      layer = layerManager.layers[layerName];
+    }
+    
+    // Si aún no se encuentra, buscar en todas las capas
+    if (!layer) {
+      for (const [key, value] of Object.entries(layerManager.layers)) {
+        const layerNameOnly = layerName.split(':')[1] || layerName;
+        const keyNameOnly = key.split(':')[1] || key;
+        
+        // Comparar nombres sin el workspace
+        if (keyNameOnly.replace('0', '') === layerNameOnly.replace('0', '') || 
+            keyNameOnly === layerNameOnly) {
+          layerId = key;
+          layer = value;
+          break;
+        }
+      }
+    }
     
     if (layer && layer.getSource) {
       const source = layer.getSource();
-      // Forzar actualización de la capa WMS cambiando un parámetro temporal
+      
+      // Actualizar el nombre activo de la capa en el source para que use el nombre correcto
       const params = source.getParams();
-      // Agregar timestamp para forzar refresh
+      
+      // Asegurarse de que el parámetro LAYERS use el nombre activo correcto
+      if (params.LAYERS !== layerName) {
+        params.LAYERS = layerName;
+      }
+      
+      // Agregar timestamp único para forzar refresh completo
       params._t = Date.now();
+      params._refresh = Math.random();
+      
+      // Actualizar parámetros (esto fuerza una nueva solicitud WMS)
       source.updateParams(params);
       
-      // Si la capa está visible, forzar redibujado
+      // Forzar cambio inmediato en la fuente
+      source.changed();
+      
+      // Si la capa está visible, forzar redibujado completo del mapa
       if (layer.getVisible()) {
-        // Pequeño delay para dar tiempo a GeoServer de actualizar
+        // Método más agresivo: forzar actualización del mapa completo
+        map.renderSync();
+        
+        // También actualizar el viewport ligeramente y volver
+        const view = map.getView();
+        const resolution = view.getResolution();
+        view.setResolution(resolution * 1.0001);
         setTimeout(() => {
-          source.changed();
-        }, 500);
+          view.setResolution(resolution);
+          map.renderSync();
+        }, 100);
       }
+      
+      console.log(`Capa WMS refrescada en cliente: ${layerName} (ID: ${layerId || 'no encontrado'})`);
+    } else {
+      console.warn(`No se encontró la capa para refrescar: ${layerName}`);
+      console.warn('Capas disponibles:', Object.keys(layerManager.layers));
     }
   };
 
@@ -345,55 +465,11 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
         updateHint("");
       }
       
-      // Guardar automáticamente en la capa correspondiente según el tipo de geometría
-      const geometry = feature.getGeometry();
-      let targetLayerName;
-      
-      if (geometry instanceof Point) {
-        targetLayerName = "gisTPI:capa_usuario";
-      } else if (geometry instanceof LineString) {
-        targetLayerName = "gisTPI:capa_usuario_linea";
-      } else if (geometry instanceof Polygon) {
-        targetLayerName = "gisTPI:capa_usuario_poligono";
-      }
-      
-      if (targetLayerName) {
-        try {
-          setIsSaving(true);
-          await saveFeatureToPostGIS(feature, targetLayerName);
-          
-          // Refrescar la capa en GeoServer y en el cliente
-          await refreshGeoServerLayer(targetLayerName);
-          
-          alert(`Feature guardado exitosamente en ${targetLayerName.split(':')[1]}`);
-          
-          // Limpiar y cerrar
-          drawLayerRef.current?.getSource().clear();
-          setDrawnFeature(null);
-          
-          // Notificar cambio
-          if (layerManager && layerManager.onChange) {
-            layerManager.onChange();
-          }
-        } catch (error) {
-          console.error("Error guardando feature:", error);
-          alert(`Error al guardar: ${error.message}`);
-          // Si falla, mostrar el diálogo para que el usuario intente de nuevo
-          setShowDialog(true);
-          // Desactivar la herramienta temporalmente
-          if (onToolChange) {
-            onToolChange(null);
-          }
-        } finally {
-          setIsSaving(false);
-        }
-      } else {
-        // Si no se puede determinar el tipo, mostrar diálogo
-        setShowDialog(true);
-        // Desactivar la herramienta temporalmente
-        if (onToolChange) {
-          onToolChange(null);
-        }
+      // Mostrar diálogo para que el usuario elija dónde guardar
+      setShowDialog(true);
+      // Desactivar la herramienta temporalmente hasta que se complete el guardado
+      if (onToolChange) {
+        onToolChange(null);
       }
     });
 
@@ -421,37 +497,69 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
   }, [map, activeTool, geometryType, onToolChange]);
 
   /**
-   * Obtiene las capas de usuario visibles que son compatibles con el tipo de geometría actual
-   * Solo muestra capas que tienen el mismo tipo de geometría que se está dibujando
+   * Obtiene las capas compatibles con el tipo de geometría actual
+   * Siempre incluye las capas de usuario de GeoServer (puntos, líneas, polígonos) aunque no estén visibles
+   * También incluye capas de usuario en memoria (temporales) visibles con la misma geometría
    * @returns {Array} Array de capas compatibles con su información
    */
   const getVisibleLayersForSelection = useCallback(async () => {
     if (!layerManager) return [];
     
-    // Solo obtener capas de usuario visibles
-    const allVisible = [];
+    const allLayers = [];
+    
+    // 1. SIEMPRE incluir las capas de usuario de GeoServer (puntos, líneas, polígonos)
+    // aunque no estén visibles
+    const userGeoServerLayers = [
+      { id: "gisTPI:capa_usuario", geometryType: "Point" },
+      { id: "gisTPI:capa_usuario_linea", geometryType: "LineString" },
+      { id: "gisTPI:capa_usuario_poligono", geometryType: "Polygon" }
+    ];
+    
+    userGeoServerLayers.forEach(({ id, geometryType: layerGeomType }) => {
+      if (layerGeomType === geometryType) {
+        // Buscar configuración de la capa para obtener el título
+        const layerConfig = layersConfig.find(cfg => cfg.id === id);
+        const displayName = layerConfig ? layerConfig.title : id.split(':')[1];
+        
+        // Para capas de usuario de GeoServer, SIEMPRE usar el nombre con "0"
+        // porque esa es la capa publicada en GeoServer
+        const [workspace, tableName] = id.split(':');
+        const activeName = `${workspace}:${tableName}0`;
+        
+        allLayers.push({
+          id: id,
+          name: activeName, // Siempre usar nombre con "0" para capas de usuario de GeoServer
+          displayName: displayName,
+          isUserLayer: false, // Es una capa de GeoServer
+          isGeoServerUserLayer: true, // Marca especial para identificar capas de usuario de GeoServer
+          geometryType: layerGeomType,
+          isVisible: layerManager.getVisible(id) // Guardar estado de visibilidad
+        });
+      }
+    });
+    
+    // 2. Incluir capas de usuario en memoria (temporales) visibles con la misma geometría
     const userLayers = layerManager.getUserLayers();
     
     Object.keys(userLayers).forEach((layerId) => {
       const layer = userLayers[layerId];
-      if (layer.getVisible()) {
-        const layerGeomType = layer.get('geometryType');
-        allVisible.push({
+      const layerGeomType = layer.get('geometryType');
+      
+      // Solo incluir si tiene la misma geometría y está visible
+      if (layerGeomType === geometryType && layer.getVisible()) {
+        allLayers.push({
           id: layerId,
-          name: layerId, // Para capas de usuario, usar el ID como nombre
+          name: layerId,
           displayName: layer.get('title') || layerId.replace('user:', ''),
           isUserLayer: true,
-          geometryType: layerGeomType, // Ya tenemos el tipo de geometría
+          isGeoServerUserLayer: false,
+          geometryType: layerGeomType,
+          isVisible: true
         });
       }
     });
 
-    // Filtrar por tipo de geometría que coincide con el dibujado
-    const filtered = allVisible.filter(layer => {
-      return layer.geometryType === geometryType;
-    });
-
-    return filtered;
+    return allLayers;
   }, [layerManager, geometryType]);
 
   // Cargar capas filtradas cuando cambia el tipo de geometría o se abre el diálogo
@@ -465,12 +573,8 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
         // Si hay una capa preseleccionada en localStorage, verificar que esté en la lista filtrada
         if (selectedExistingLayer) {
           const isInList = layers.some(l => {
-            // Para capas de usuario, comparar por ID; para GeoServer, por name
-            if (l.isUserLayer) {
-              return l.id === selectedExistingLayer;
-            } else {
-              return l.name === selectedExistingLayer;
-            }
+            // Comparar siempre por ID de configuración
+            return l.id === selectedExistingLayer;
           });
           if (!isInList) {
             // La capa preseleccionada no es compatible con este tipo de geometría
@@ -502,8 +606,32 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
           return;
         }
 
-        // Verificar si es una capa de usuario
+        // Buscar la capa seleccionada en la lista filtrada para obtener su información
+        const selectedLayerInfo = filteredLayers.find(l => {
+          if (l.isUserLayer) {
+            return l.id === selectedExistingLayer;
+          } else {
+            return l.id === selectedExistingLayer || l.name === selectedExistingLayer;
+          }
+        });
+        
+        // Verificar si es una capa de usuario en memoria
         const isUserLayer = selectedExistingLayer.startsWith('user:');
+        
+        // Verificar si es una capa de usuario de GeoServer
+        const isGeoServerUserLayer = selectedLayerInfo && selectedLayerInfo.isGeoServerUserLayer;
+        
+        // Si es una capa de GeoServer de usuario y no está visible, activarla automáticamente
+        if (isGeoServerUserLayer && selectedLayerInfo && !selectedLayerInfo.isVisible) {
+          const layerId = selectedLayerInfo.id;
+          if (layerManager && layerManager.setVisible) {
+            layerManager.setVisible(layerId, true);
+            // Notificar cambio
+            if (layerManager.onChange) {
+              layerManager.onChange();
+            }
+          }
+        }
         
         if (isUserLayer) {
           // Guardar en capa de usuario existente
@@ -558,7 +686,33 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
         }
 
         // Guardar en capa de GeoServer usando WFS Transaction
-        const layerName = selectedExistingLayer;
+        // IMPORTANTE: Para guardar en la tabla "capa_usuario" (sin "0"), necesitamos usar
+        // el nombre de la capa publicado en GeoServer (con "0"), pero la configuración de 
+        // la capa en GeoServer debe estar apuntando a la tabla sin "0" en PostGIS.
+        // 
+        // Si GeoServer guarda en capa_usuario0 en lugar de capa_usuario, hay que reconfigurar
+        // la capa en GeoServer:
+        // 1. Ir a Layers → capa_usuario0 → Data
+        // 2. Verificar que "Native name" apunte a la tabla "capa_usuario" (sin el 0)
+        let layerId, layerName;
+        if (isGeoServerUserLayer && selectedLayerInfo) {
+          layerId = selectedLayerInfo.id; // ID de configuración (ej: "gisTPI:capa_usuario")
+          
+          // Para las capas de usuario de GeoServer, SIEMPRE usar el nombre con "0"
+          // porque esa es la capa publicada en GeoServer (capa_usuario0, capa_usuario_linea0, etc.)
+          const [workspace, tableName] = layerId.split(':');
+          
+          // Construir el nombre correcto con "0" al final
+          // Para: gisTPI:capa_usuario → gisTPI:capa_usuario0
+          // Para: gisTPI:capa_usuario_linea → gisTPI:capa_usuario_linea0
+          // Para: gisTPI:capa_usuario_poligono → gisTPI:capa_usuario_poligono0
+          layerName = `${workspace}:${tableName}0`;
+          
+          console.log(`Usando nombre de capa GeoServer: ${layerName} (desde ID: ${layerId})`);
+        } else {
+          layerId = selectedExistingLayer;
+          layerName = selectedExistingLayer;
+        }
         const format = new GeoJSON();
         const geometry = drawnFeature.getGeometry();
         
@@ -571,20 +725,50 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
         const featureObj = JSON.parse(featureJSON);
         const coordinates = featureObj.geometry.coordinates;
 
+        // Log para depuración
+        console.log("Coordenadas en GeoJSON (EPSG:4326):", coordinates);
+        console.log("Tipo de geometría:", featureObj.geometry.type);
+
+        // Validar coordenadas antes de construir el XML
+        // En GeoJSON, el formato es [longitud, latitud] en EPSG:4326
+        // En GML 3.2.1 con EPSG:4326, el formato es latitud longitud
+        const validateCoords = (lon, lat) => {
+          if (isNaN(lon) || isNaN(lat)) {
+            throw new Error(`Coordenadas no son números: Lon=${lon}, Lat=${lat}`);
+          }
+          if (Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+            console.error(`Coordenadas fuera de rango - Lon: ${lon}, Lat: ${lat}`);
+            throw new Error(`Coordenadas inválidas: longitud debe estar entre -180 y 180, latitud entre -90 y 90. Recibido: Lon=${lon}, Lat=${lat}`);
+          }
+        };
+
         // Construir XML GML para la geometría según el tipo
+        // IMPORTANTE: GeoServer con EPSG:4326 en GML 3.2.1/WFS 1.1.0 usa el orden lon/lat (longitud primero)
+        // Esto es diferente del estándar EPSG:4326 tradicional que usa lat/lon
+        // El error muestra que GeoServer espera: primer valor = longitud, segundo valor = latitud
         let gmlGeometry = "";
         if (geometry instanceof Point) {
-          gmlGeometry = `<gml:Point srsName="EPSG:4326"><gml:pos>${coordinates[1]} ${coordinates[0]}</gml:pos></gml:Point>`;
+          const [lon, lat] = coordinates;
+          validateCoords(lon, lat);
+          // GML con GeoServer: longitud primero, luego latitud
+          gmlGeometry = `<gml:Point srsName="EPSG:4326"><gml:pos>${lon} ${lat}</gml:pos></gml:Point>`;
+          console.log(`GML Point: lon=${lon}, lat=${lat}`);
         } else if (geometry instanceof LineString) {
-          const posList = coordinates.map(c => `${c[1]} ${c[0]}`).join(" ");
+          // Validar todas las coordenadas
+          coordinates.forEach(([lon, lat]) => validateCoords(lon, lat));
+          const posList = coordinates.map(([lon, lat]) => `${lon} ${lat}`).join(" ");
           gmlGeometry = `<gml:LineString srsName="EPSG:4326"><gml:posList>${posList}</gml:posList></gml:LineString>`;
         } else if (geometry instanceof Polygon) {
-          const exteriorRing = coordinates[0].map(c => `${c[1]} ${c[0]}`).join(" ");
+          // Validar todas las coordenadas del anillo exterior
+          coordinates[0].forEach(([lon, lat]) => validateCoords(lon, lat));
+          const exteriorRing = coordinates[0].map(([lon, lat]) => `${lon} ${lat}`).join(" ");
           gmlGeometry = `<gml:Polygon srsName="EPSG:4326"><gml:exterior><gml:LinearRing><gml:posList>${exteriorRing}</gml:posList></gml:LinearRing></gml:exterior></gml:Polygon>`;
         }
 
+        // Para capas de usuario de GeoServer, el campo de geometría se llama "geom"
+        // Para otras capas, usar el patrón estándar
         const layerNameOnly = layerName.split(':')[1];
-        const geomFieldName = `${layerNameOnly}_geom`;
+        const geomFieldName = isGeoServerUserLayer ? "geom" : `${layerNameOnly}_geom`;
 
         // Calcular bbox aproximado
         let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
@@ -601,25 +785,31 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
         };
         processCoords(coordinates);
 
+        // Construir el XML de transacción WFS
+        // Necesitamos declarar el namespace del workspace para que el elemento de la capa sea válido
+        const [workspace, tableName] = layerName.split(':');
+        
+        // Construir el XML simplificado sin boundedBy (opcional y puede causar problemas)
+        // El namespace debe estar declarado para que GeoServer reconozca la capa
         const transactionXML = `<?xml version="1.0" encoding="UTF-8"?>
 <wfs:Transaction service="WFS" version="1.1.0"
   xmlns:wfs="http://www.opengis.net/wfs"
   xmlns:gml="http://www.opengis.net/gml"
-  xmlns:ogc="http://www.opengis.net/ogc"
+  xmlns:${workspace}="http://${workspace}"
   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
   xsi:schemaLocation="http://www.opengis.net/wfs http://schemas.opengis.net/wfs/1.1.0/wfs.xsd">
   <wfs:Insert>
     <${layerName}>
-      <gml:boundedBy>
-        <gml:Envelope srsName="EPSG:4326">
-          <gml:lowerCorner>${minLat} ${minLon}</gml:lowerCorner>
-          <gml:upperCorner>${maxLat} ${maxLon}</gml:upperCorner>
-        </gml:Envelope>
-      </gml:boundedBy>
       <${geomFieldName}>${gmlGeometry}</${geomFieldName}>
     </${layerName}>
   </wfs:Insert>
 </wfs:Transaction>`;
+        
+        console.log("WFS Transaction XML:", transactionXML);
+        console.log("Layer name:", layerName);
+        console.log("Workspace:", workspace);
+        console.log("Table name:", tableName);
+        console.log("Geometry field name:", geomFieldName);
 
         const response = await fetch(URL_WFS, {
           method: "POST",
@@ -636,11 +826,81 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
         }
 
         const resultXML = await response.text();
-        if (resultXML.includes("Exception") || resultXML.includes("error")) {
-          throw new Error("El servidor reportó un error al guardar el feature");
+        console.log("WFS Transaction Response:", resultXML);
+        
+        // Verificar si hay errores en la respuesta (GeoServer devuelve errores con diferentes formatos)
+        const errorPatterns = [
+          /Exception/i,
+          /error/i,
+          /Error/i,
+          /ows:ExceptionReport/i,
+          /ServiceException/i
+        ];
+        
+        const hasError = errorPatterns.some(pattern => pattern.test(resultXML));
+        
+        if (hasError) {
+          // Intentar extraer el mensaje de error del XML con múltiples formatos
+          let errorMessage = "Error desconocido del servidor";
+          
+          // Formato OWS Exception
+          const owsMatch = resultXML.match(/<ows:ExceptionText[^>]*>([^<]+)<\/ows:ExceptionText>/i);
+          if (owsMatch) {
+            errorMessage = owsMatch[1].trim();
+          } else {
+            // Formato ServiceException
+            const serviceMatch = resultXML.match(/<ServiceException[^>]*>([^<]+)<\/ServiceException>/i);
+            if (serviceMatch) {
+              errorMessage = serviceMatch[1].trim();
+            } else {
+              // Intentar cualquier formato de excepción
+              const genericMatch = resultXML.match(/Exception[^>]*>([^<]+)</i);
+              if (genericMatch) {
+                errorMessage = genericMatch[1].trim();
+              }
+            }
+          }
+          
+          console.error("Error XML completo:", resultXML);
+          throw new Error(`Error al guardar: ${errorMessage}`);
+        }
+        
+        // Verificar si la transacción fue exitosa
+        // GeoServer puede devolver diferentes formatos de éxito
+        const successPatterns = [
+          /<wfs:totalInserted>/i,
+          /InsertResults/i,
+          /SUCCESS/i,
+          /<wfs:InsertResults>/i
+        ];
+        
+        const isSuccess = successPatterns.some(pattern => pattern.test(resultXML));
+        
+        if (!isSuccess) {
+          console.error("Respuesta inesperada del servidor:", resultXML);
+          throw new Error("El servidor no devolvió una confirmación de guardado exitoso. Ver consola para más detalles.");
         }
 
-        setModal({ isOpen: true, message: "Feature guardado exitosamente en GeoServer", type: "success", title: "Éxito" });
+        // Si es una capa de usuario de GeoServer, activarla automáticamente para que se vea el cambio
+        if (isGeoServerUserLayer && selectedLayerInfo && layerManager) {
+          const layerId = selectedLayerInfo.id;
+          // Activar la capa si no está visible
+          if (!layerManager.getVisible(layerId)) {
+            layerManager.setVisible(layerId, true);
+            console.log(`Capa ${layerId} activada automáticamente`);
+          }
+        }
+
+        // Refrescar la capa en GeoServer y en el cliente usando el ID de configuración
+        const layerIdForRefresh = isGeoServerUserLayer && selectedLayerInfo ? selectedLayerInfo.id : layerName;
+        
+        // Dar un pequeño delay antes del refresh para asegurar que PostGIS haya completado la transacción
+        await new Promise(resolve => setTimeout(resolve, 300));
+        
+        await refreshGeoServerLayer(layerIdForRefresh);
+
+        const layerDisplayName = selectedLayerInfo ? selectedLayerInfo.displayName : layerName.split(':')[1];
+        setModal({ isOpen: true, message: `Feature guardado exitosamente en "${layerDisplayName}"`, type: "success", title: "Éxito" });
       } else {
         // Guardar en nueva capa de usuario (en memoria)
         if (!newLayerName.trim()) {
@@ -912,11 +1172,6 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
                   <label>Seleccionar capa ({geometryType === "Point" ? "Puntos" : geometryType === "LineString" ? "Líneas" : "Polígonos"}):</label>
                   {loadingLayers ? (
                     <p className="loading-message">Cargando capas compatibles...</p>
-                  ) : filteredLayers.length === 0 ? (
-                    <p className="no-layers-message">
-                      No hay capas visibles de tipo {geometryType === "Point" ? "punto" : geometryType === "LineString" ? "línea" : "polígono"}. 
-                      Activa al menos una capa compatible para guardar aquí.
-                    </p>
                   ) : (
                     <select
                       value={selectedExistingLayer}
@@ -926,11 +1181,17 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
                       }}
                     >
                       <option value="">-- Selecciona una capa --</option>
-                      {filteredLayers.map((layer) => (
-                        <option key={layer.id} value={layer.isUserLayer ? layer.id : layer.name}>
-                          {layer.displayName} {layer.isUserLayer ? '(Usuario)' : ''}
-                        </option>
-                      ))}
+                      {filteredLayers.map((layer) => {
+                        // Usar siempre el ID de configuración para poder identificar la capa correctamente
+                        const optionValue = layer.id;
+                        const visibilityLabel = !layer.isVisible ? ' (no visible)' : '';
+                        const layerTypeLabel = layer.isUserLayer ? ' (Usuario)' : '';
+                        return (
+                          <option key={layer.id} value={optionValue}>
+                            {layer.displayName}{layerTypeLabel}{visibilityLabel}
+                          </option>
+                        );
+                      })}
                     </select>
                   )}
                 </div>

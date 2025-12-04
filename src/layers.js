@@ -83,9 +83,9 @@ export const layersConfig = [
   { id: "gisTPI:Veg_Arbustiva", title: "Vegetación Arbustiva", group: "Vegetación", emoji: "🌳" },
   
   // Capas de Usuario (PostGIS)
-  { id: "gisTPI:capa_usuario", title: "Capa Usuario (Puntos)", group: "Usuario", emoji: "👤" },
-  { id: "gisTPI:capa_usuario_linea", title: "Capa Usuario (Líneas)", group: "Usuario", emoji: "👤" },
-  { id: "gisTPI:capa_usuario_poligono", title: "Capa Usuario (Polígonos)", group: "Usuario", emoji: "👤" },
+  { id: "gisTPI:capa_usuario", title: "Capa Usuario (Puntos)", group: "Usuario", emoji: "👤", geometryType: "Point" },
+  { id: "gisTPI:capa_usuario_linea", title: "Capa Usuario (Líneas)", group: "Usuario", emoji: "👤", geometryType: "LineString" },
+  { id: "gisTPI:capa_usuario_poligono", title: "Capa Usuario (Polígonos)", group: "Usuario", emoji: "👤", geometryType: "Polygon" },
 ];
 
 /**

@@ -21,7 +21,7 @@ export const URL_OGC = `${GEOSERVER_BASE}/geoserver/gisTPI/wms`;
 export const URL_WFS = `${GEOSERVER_BASE}/geoserver/gisTPI/wfs`;
 export const GEOSERVER_REST = `${GEOSERVER_BASE}/geoserver/rest`;
 export const GEOSERVER_WORKSPACE = 'gisTPI';
-export const GEOSERVER_DATASTORE = 'postgis_gisTPI';
+export const GEOSERVER_DATASTORE = 'gisTPI';
 
 
 
