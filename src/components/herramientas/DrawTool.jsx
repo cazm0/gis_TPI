@@ -56,6 +56,8 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
   const [layerAttributes, setLayerAttributes] = useState([]); // Atributos para nueva capa
   const [featureAttributes, setFeatureAttributes] = useState({}); // Valores de atributos para la feature actual
   const [showAttributesForm, setShowAttributesForm] = useState(false);
+  const [postgisAttributes, setPostgisAttributes] = useState({ nombre: '', tipo: '', descripcion: '' }); // Atributos para capas de PostGIS
+  const [showPostgisForm, setShowPostgisForm] = useState(false); // Mostrar formulario de PostGIS
   const hintRef = useRef(null);
   const [modal, setModal] = useState({ isOpen: false, message: "", type: "info", title: "" });
 
@@ -587,6 +589,210 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
   }, [showDialog, geometryType, layerManager, drawnFeature, getVisibleLayersForSelection, selectedExistingLayer]);
 
   /**
+   * Guarda el feature en una capa de GeoServer (PostGIS) con atributos
+   * @param {Object} postgisAttrs - Atributos PostGIS: { nombre, tipo, descripcion }
+   */
+  const saveFeatureToPostGIS = async (postgisAttrs = {}) => {
+    if (!drawnFeature) return;
+
+    setIsSaving(true);
+    try {
+      // Buscar la capa seleccionada en la lista filtrada
+      const selectedLayerInfo = filteredLayers.find(l => {
+        if (l.isUserLayer) {
+          return l.id === selectedExistingLayer;
+        } else {
+          return l.id === selectedExistingLayer || l.name === selectedExistingLayer;
+        }
+      });
+      
+      const isGeoServerUserLayer = selectedLayerInfo && selectedLayerInfo.isGeoServerUserLayer;
+      
+      if (!isGeoServerUserLayer) {
+        throw new Error("Esta función solo debe usarse para capas de usuario de GeoServer");
+      }
+
+      // Si es una capa de usuario de GeoServer y no está visible, activarla automáticamente
+      if (selectedLayerInfo && !selectedLayerInfo.isVisible) {
+        const layerId = selectedLayerInfo.id;
+        if (layerManager && layerManager.setVisible) {
+          layerManager.setVisible(layerId, true);
+          if (layerManager.onChange) {
+            layerManager.onChange();
+          }
+        }
+      }
+
+      const layerId = selectedLayerInfo.id;
+      const [workspace, tableName] = layerId.split(':');
+      const layerName = `${workspace}:${tableName}0`;
+
+      const format = new GeoJSON();
+      const geometry = drawnFeature.getGeometry();
+      
+      // Convertir geometría a GeoJSON en EPSG:4326
+      const featureJSON = format.writeFeature(drawnFeature, {
+        featureProjection: "EPSG:3857",
+        dataProjection: "EPSG:4326",
+      });
+
+      const featureObj = JSON.parse(featureJSON);
+      const coordinates = featureObj.geometry.coordinates;
+
+      // Validar coordenadas
+      const validateCoords = (lon, lat) => {
+        if (isNaN(lon) || isNaN(lat)) {
+          throw new Error(`Coordenadas no son números: Lon=${lon}, Lat=${lat}`);
+        }
+        if (Math.abs(lat) > 90 || Math.abs(lon) > 180) {
+          throw new Error(`Coordenadas inválidas: longitud debe estar entre -180 y 180, latitud entre -90 y 90. Recibido: Lon=${lon}, Lat=${lat}`);
+        }
+      };
+
+      // Construir XML GML para la geometría
+      let gmlGeometry = "";
+      if (geometry instanceof Point) {
+        const [lon, lat] = coordinates;
+        validateCoords(lon, lat);
+        gmlGeometry = `<gml:Point srsName="EPSG:4326"><gml:pos>${lon} ${lat}</gml:pos></gml:Point>`;
+      } else if (geometry instanceof LineString) {
+        coordinates.forEach(([lon, lat]) => validateCoords(lon, lat));
+        const posList = coordinates.map(([lon, lat]) => `${lon} ${lat}`).join(" ");
+        gmlGeometry = `<gml:LineString srsName="EPSG:4326"><gml:posList>${posList}</gml:posList></gml:LineString>`;
+      } else if (geometry instanceof Polygon) {
+        coordinates[0].forEach(([lon, lat]) => validateCoords(lon, lat));
+        const exteriorRing = coordinates[0].map(([lon, lat]) => `${lon} ${lat}`).join(" ");
+        gmlGeometry = `<gml:Polygon srsName="EPSG:4326"><gml:exterior><gml:LinearRing><gml:posList>${exteriorRing}</gml:posList></gml:LinearRing></gml:exterior></gml:Polygon>`;
+      }
+
+      const geomFieldName = "geom";
+
+      // Construir el XML de transacción WFS con atributos
+      const nombre = (postgisAttrs.nombre || '').trim();
+      const tipo = (postgisAttrs.tipo || '').trim();
+      const descripcion = (postgisAttrs.descripcion || '').trim();
+
+      // Escapar valores XML
+      const escapeXML = (str) => {
+        if (!str) return '';
+        return str
+          .replace(/&/g, '&amp;')
+          .replace(/</g, '&lt;')
+          .replace(/>/g, '&gt;')
+          .replace(/"/g, '&quot;')
+          .replace(/'/g, '&apos;');
+      };
+
+      const transactionXML = `<?xml version="1.0" encoding="UTF-8"?>
+<wfs:Transaction service="WFS" version="1.1.0"
+  xmlns:wfs="http://www.opengis.net/wfs"
+  xmlns:gml="http://www.opengis.net/gml"
+  xmlns:${workspace}="http://${workspace}"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.opengis.net/wfs http://schemas.opengis.net/wfs/1.1.0/wfs.xsd">
+  <wfs:Insert>
+    <${layerName}>
+      <${geomFieldName}>${gmlGeometry}</${geomFieldName}>
+      ${nombre ? `<nombre>${escapeXML(nombre)}</nombre>` : ''}
+      ${tipo ? `<tipo>${escapeXML(tipo)}</tipo>` : ''}
+      ${descripcion ? `<descripcion>${escapeXML(descripcion)}</descripcion>` : ''}
+    </${layerName}>
+  </wfs:Insert>
+</wfs:Transaction>`;
+      
+      console.log("WFS Transaction XML:", transactionXML);
+
+      const response = await fetch(URL_WFS, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/xml",
+        },
+        body: transactionXML,
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("Error response:", errorText);
+        throw new Error(`Error del servidor: ${response.status}`);
+      }
+
+      const resultXML = await response.text();
+      console.log("WFS Transaction Response:", resultXML);
+      
+      // Verificar errores
+      const errorPatterns = [
+        /Exception/i,
+        /error/i,
+        /Error/i,
+        /ows:ExceptionReport/i,
+        /ServiceException/i
+      ];
+      
+      const hasError = errorPatterns.some(pattern => pattern.test(resultXML));
+      
+      if (hasError) {
+        let errorMessage = "Error desconocido del servidor";
+        const owsMatch = resultXML.match(/<ows:ExceptionText[^>]*>([^<]+)<\/ows:ExceptionText>/i);
+        if (owsMatch) {
+          errorMessage = owsMatch[1].trim();
+        } else {
+          const serviceMatch = resultXML.match(/<ServiceException[^>]*>([^<]+)<\/ServiceException>/i);
+          if (serviceMatch) {
+            errorMessage = serviceMatch[1].trim();
+          }
+        }
+        throw new Error(`Error al guardar: ${errorMessage}`);
+      }
+      
+      // Verificar éxito
+      const successPatterns = [
+        /<wfs:totalInserted>/i,
+        /InsertResults/i,
+        /SUCCESS/i,
+        /<wfs:InsertResults>/i
+      ];
+      
+      const isSuccess = successPatterns.some(pattern => pattern.test(resultXML));
+      
+      if (!isSuccess) {
+        throw new Error("El servidor no devolvió una confirmación de guardado exitoso.");
+      }
+
+      // Activar la capa si no está visible
+      if (selectedLayerInfo && layerManager) {
+        const layerId = selectedLayerInfo.id;
+        if (!layerManager.getVisible(layerId)) {
+          layerManager.setVisible(layerId, true);
+        }
+      }
+
+      // Refrescar la capa
+      await new Promise(resolve => setTimeout(resolve, 300));
+      await refreshGeoServerLayer(selectedLayerInfo.id);
+
+      const layerDisplayName = selectedLayerInfo ? selectedLayerInfo.displayName : layerName.split(':')[1];
+      setModal({ isOpen: true, message: `Feature guardado exitosamente en "${layerDisplayName}"`, type: "success", title: "Éxito" });
+
+      // Limpiar y cerrar
+      drawLayerRef.current?.getSource().clear();
+      setShowDialog(false);
+      setShowPostgisForm(false);
+      setDrawnFeature(null);
+      setPostgisAttributes({ nombre: '', tipo: '', descripcion: '' });
+
+      // Notificar cambio
+      if (layerManager && layerManager.onChange) {
+        layerManager.onChange();
+      }
+    } catch (error) {
+      console.error("Error guardando feature en PostGIS:", error);
+      setModal({ isOpen: true, message: `Error al guardar el feature: ${error.message}`, type: "error", title: "Error" });
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  /**
    * Guarda el feature dibujado en la capa seleccionada
    * Puede guardar en:
    * - Capa de usuario nueva (en memoria)
@@ -709,198 +915,15 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
           layerName = `${workspace}:${tableName}0`;
           
           console.log(`Usando nombre de capa GeoServer: ${layerName} (desde ID: ${layerId})`);
-        } else {
-          layerId = selectedExistingLayer;
-          layerName = selectedExistingLayer;
-        }
-        const format = new GeoJSON();
-        const geometry = drawnFeature.getGeometry();
-        
-        // Convertir geometría a GeoJSON en EPSG:4326
-        const featureJSON = format.writeFeature(drawnFeature, {
-          featureProjection: "EPSG:3857",
-          dataProjection: "EPSG:4326",
-        });
-
-        const featureObj = JSON.parse(featureJSON);
-        const coordinates = featureObj.geometry.coordinates;
-
-        // Log para depuración
-        console.log("Coordenadas en GeoJSON (EPSG:4326):", coordinates);
-        console.log("Tipo de geometría:", featureObj.geometry.type);
-
-        // Validar coordenadas antes de construir el XML
-        // En GeoJSON, el formato es [longitud, latitud] en EPSG:4326
-        // En GML 3.2.1 con EPSG:4326, el formato es latitud longitud
-        const validateCoords = (lon, lat) => {
-          if (isNaN(lon) || isNaN(lat)) {
-            throw new Error(`Coordenadas no son números: Lon=${lon}, Lat=${lat}`);
-          }
-          if (Math.abs(lat) > 90 || Math.abs(lon) > 180) {
-            console.error(`Coordenadas fuera de rango - Lon: ${lon}, Lat: ${lat}`);
-            throw new Error(`Coordenadas inválidas: longitud debe estar entre -180 y 180, latitud entre -90 y 90. Recibido: Lon=${lon}, Lat=${lat}`);
-          }
-        };
-
-        // Construir XML GML para la geometría según el tipo
-        // IMPORTANTE: GeoServer con EPSG:4326 en GML 3.2.1/WFS 1.1.0 usa el orden lon/lat (longitud primero)
-        // Esto es diferente del estándar EPSG:4326 tradicional que usa lat/lon
-        // El error muestra que GeoServer espera: primer valor = longitud, segundo valor = latitud
-        let gmlGeometry = "";
-        if (geometry instanceof Point) {
-          const [lon, lat] = coordinates;
-          validateCoords(lon, lat);
-          // GML con GeoServer: longitud primero, luego latitud
-          gmlGeometry = `<gml:Point srsName="EPSG:4326"><gml:pos>${lon} ${lat}</gml:pos></gml:Point>`;
-          console.log(`GML Point: lon=${lon}, lat=${lat}`);
-        } else if (geometry instanceof LineString) {
-          // Validar todas las coordenadas
-          coordinates.forEach(([lon, lat]) => validateCoords(lon, lat));
-          const posList = coordinates.map(([lon, lat]) => `${lon} ${lat}`).join(" ");
-          gmlGeometry = `<gml:LineString srsName="EPSG:4326"><gml:posList>${posList}</gml:posList></gml:LineString>`;
-        } else if (geometry instanceof Polygon) {
-          // Validar todas las coordenadas del anillo exterior
-          coordinates[0].forEach(([lon, lat]) => validateCoords(lon, lat));
-          const exteriorRing = coordinates[0].map(([lon, lat]) => `${lon} ${lat}`).join(" ");
-          gmlGeometry = `<gml:Polygon srsName="EPSG:4326"><gml:exterior><gml:LinearRing><gml:posList>${exteriorRing}</gml:posList></gml:LinearRing></gml:exterior></gml:Polygon>`;
-        }
-
-        // Para capas de usuario de GeoServer, el campo de geometría se llama "geom"
-        // Para otras capas, usar el patrón estándar
-        const layerNameOnly = layerName.split(':')[1];
-        const geomFieldName = isGeoServerUserLayer ? "geom" : `${layerNameOnly}_geom`;
-
-        // Calcular bbox aproximado
-        let minLon = Infinity, minLat = Infinity, maxLon = -Infinity, maxLat = -Infinity;
-        const processCoords = (coords) => {
-          if (Array.isArray(coords[0])) {
-            coords.forEach(c => processCoords(c));
-          } else {
-            const [lon, lat] = coords;
-            minLon = Math.min(minLon, lon);
-            maxLon = Math.max(maxLon, lon);
-            minLat = Math.min(minLat, lat);
-            maxLat = Math.max(maxLat, lat);
-          }
-        };
-        processCoords(coordinates);
-
-        // Construir el XML de transacción WFS
-        // Necesitamos declarar el namespace del workspace para que el elemento de la capa sea válido
-        const [workspace, tableName] = layerName.split(':');
-        
-        // Construir el XML simplificado sin boundedBy (opcional y puede causar problemas)
-        // El namespace debe estar declarado para que GeoServer reconozca la capa
-        const transactionXML = `<?xml version="1.0" encoding="UTF-8"?>
-<wfs:Transaction service="WFS" version="1.1.0"
-  xmlns:wfs="http://www.opengis.net/wfs"
-  xmlns:gml="http://www.opengis.net/gml"
-  xmlns:${workspace}="http://${workspace}"
-  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xsi:schemaLocation="http://www.opengis.net/wfs http://schemas.opengis.net/wfs/1.1.0/wfs.xsd">
-  <wfs:Insert>
-    <${layerName}>
-      <${geomFieldName}>${gmlGeometry}</${geomFieldName}>
-    </${layerName}>
-  </wfs:Insert>
-</wfs:Transaction>`;
-        
-        console.log("WFS Transaction XML:", transactionXML);
-        console.log("Layer name:", layerName);
-        console.log("Workspace:", workspace);
-        console.log("Table name:", tableName);
-        console.log("Geometry field name:", geomFieldName);
-
-        const response = await fetch(URL_WFS, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/xml",
-          },
-          body: transactionXML,
-        });
-
-        if (!response.ok) {
-          const errorText = await response.text();
-          console.error("Error response:", errorText);
-          throw new Error(`Error del servidor: ${response.status}`);
-        }
-
-        const resultXML = await response.text();
-        console.log("WFS Transaction Response:", resultXML);
-        
-        // Verificar si hay errores en la respuesta (GeoServer devuelve errores con diferentes formatos)
-        const errorPatterns = [
-          /Exception/i,
-          /error/i,
-          /Error/i,
-          /ows:ExceptionReport/i,
-          /ServiceException/i
-        ];
-        
-        const hasError = errorPatterns.some(pattern => pattern.test(resultXML));
-        
-        if (hasError) {
-          // Intentar extraer el mensaje de error del XML con múltiples formatos
-          let errorMessage = "Error desconocido del servidor";
           
-          // Formato OWS Exception
-          const owsMatch = resultXML.match(/<ows:ExceptionText[^>]*>([^<]+)<\/ows:ExceptionText>/i);
-          if (owsMatch) {
-            errorMessage = owsMatch[1].trim();
-          } else {
-            // Formato ServiceException
-            const serviceMatch = resultXML.match(/<ServiceException[^>]*>([^<]+)<\/ServiceException>/i);
-            if (serviceMatch) {
-              errorMessage = serviceMatch[1].trim();
-            } else {
-              // Intentar cualquier formato de excepción
-              const genericMatch = resultXML.match(/Exception[^>]*>([^<]+)</i);
-              if (genericMatch) {
-                errorMessage = genericMatch[1].trim();
-              }
-            }
-          }
-          
-          console.error("Error XML completo:", resultXML);
-          throw new Error(`Error al guardar: ${errorMessage}`);
-        }
-        
-        // Verificar si la transacción fue exitosa
-        // GeoServer puede devolver diferentes formatos de éxito
-        const successPatterns = [
-          /<wfs:totalInserted>/i,
-          /InsertResults/i,
-          /SUCCESS/i,
-          /<wfs:InsertResults>/i
-        ];
-        
-        const isSuccess = successPatterns.some(pattern => pattern.test(resultXML));
-        
-        if (!isSuccess) {
-          console.error("Respuesta inesperada del servidor:", resultXML);
-          throw new Error("El servidor no devolvió una confirmación de guardado exitoso. Ver consola para más detalles.");
-        }
-
-        // Si es una capa de usuario de GeoServer, activarla automáticamente para que se vea el cambio
-        if (isGeoServerUserLayer && selectedLayerInfo && layerManager) {
-          const layerId = selectedLayerInfo.id;
-          // Activar la capa si no está visible
-          if (!layerManager.getVisible(layerId)) {
-            layerManager.setVisible(layerId, true);
-            console.log(`Capa ${layerId} activada automáticamente`);
+          // Si es una capa de usuario de GeoServer, mostrar formulario de atributos PostGIS
+          if (isGeoServerUserLayer) {
+            setShowDialog(false); // Cerrar diálogo principal
+            setShowPostgisForm(true); // Mostrar formulario PostGIS
+            setIsSaving(false);
+            return;
           }
         }
-
-        // Refrescar la capa en GeoServer y en el cliente usando el ID de configuración
-        const layerIdForRefresh = isGeoServerUserLayer && selectedLayerInfo ? selectedLayerInfo.id : layerName;
-        
-        // Dar un pequeño delay antes del refresh para asegurar que PostGIS haya completado la transacción
-        await new Promise(resolve => setTimeout(resolve, 300));
-        
-        await refreshGeoServerLayer(layerIdForRefresh);
-
-        const layerDisplayName = selectedLayerInfo ? selectedLayerInfo.displayName : layerName.split(':')[1];
-        setModal({ isOpen: true, message: `Feature guardado exitosamente en "${layerDisplayName}"`, type: "success", title: "Éxito" });
       } else {
         // Guardar en nueva capa de usuario (en memoria)
         if (!newLayerName.trim()) {
@@ -1123,9 +1146,11 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
     drawLayerRef.current?.getSource().clear();
     setShowDialog(false);
     setShowAttributesForm(false);
+    setShowPostgisForm(false);
     setDrawnFeature(null);
     setLayerAttributes([]);
     setFeatureAttributes({});
+    setPostgisAttributes({ nombre: '', tipo: '', descripcion: '' });
     // No resetear los valores, mantener la última selección
   };
 
@@ -1418,6 +1443,68 @@ export default function DrawTool({ map, activeTool, layerManager, onToolChange, 
                 </button>
                 <button
                   onClick={saveFeatureWithAttributes}
+                  disabled={isSaving}
+                  className="btn-save"
+                >
+                  {isSaving ? "Guardando..." : "Guardar"}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Diálogo de atributos PostGIS */}
+      {showPostgisForm && drawnFeature && (
+        <div className="draw-dialog-overlay">
+          <div className="draw-dialog" style={{ maxWidth: '500px' }}>
+            <h3>Atributos del Feature</h3>
+            <div className="draw-dialog-content">
+              <div className="form-group">
+                <label>Nombre:</label>
+                <input
+                  type="text"
+                  value={postgisAttributes.nombre}
+                  onChange={(e) => setPostgisAttributes({ ...postgisAttributes, nombre: e.target.value })}
+                  placeholder="Ingrese el nombre"
+                />
+              </div>
+              
+              <div className="form-group">
+                <label>Tipo:</label>
+                <input
+                  type="text"
+                  value={postgisAttributes.tipo}
+                  onChange={(e) => setPostgisAttributes({ ...postgisAttributes, tipo: e.target.value })}
+                  placeholder="Ingrese el tipo"
+                />
+              </div>
+              
+              <div className="form-group">
+                <label>Descripción:</label>
+                <textarea
+                  value={postgisAttributes.descripcion}
+                  onChange={(e) => setPostgisAttributes({ ...postgisAttributes, descripcion: e.target.value })}
+                  placeholder="Ingrese la descripción"
+                  rows="4"
+                  style={{ width: '100%', padding: '8px', fontSize: '14px', fontFamily: 'inherit', resize: 'vertical' }}
+                />
+              </div>
+
+              <div className="draw-dialog-actions">
+                <button
+                  onClick={() => {
+                    setShowPostgisForm(false);
+                    setShowDialog(true); // Volver al diálogo principal
+                    setIsSaving(false);
+                  }}
+                  disabled={isSaving}
+                  className="btn-cancel"
+                >
+                  Atrás
+                </button>
+                <button
+                  onClick={() => saveFeatureToPostGIS(postgisAttributes)}
                   disabled={isSaving}
                   className="btn-save"
                 >

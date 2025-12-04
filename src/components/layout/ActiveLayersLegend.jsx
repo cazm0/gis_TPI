@@ -22,7 +22,8 @@ import "./ActiveLayersLegend.css";
  */
 export default function ActiveLayersLegend({ layerManager, update }) {
   const [isExpanded, setIsExpanded] = useState(true);
-  const [legends, setLegends] = useState({});
+  const [legends, setLegends] = useState({}); // Ahora puede contener múltiples leyendas por capa
+  const [expandedLayers, setExpandedLayers] = useState({}); // Controla qué capas tienen subcategorías expandidas
   const [editingLayer, setEditingLayer] = useState(null);
   const [draggedLayerId, setDraggedLayerId] = useState(null);
   const [dragOverIndex, setDragOverIndex] = useState(null);
@@ -96,29 +97,163 @@ export default function ActiveLayersLegend({ layerManager, update }) {
             geometryType: layer.geometryType || 'Point' // Agregar tipo de geometría
           };
         } else {
-          // Cargar leyenda de GeoServer
+          // Cargar leyenda de GeoServer con todas las clasificaciones
           try {
+            // Obtener la leyenda completa con ancho mayor para mejor legibilidad
             const params = new URLSearchParams({
               REQUEST: 'GetLegendGraphic',
               VERSION: '1.0.0',
               FORMAT: 'image/png',
               LAYER: layer.name,
-              WIDTH: '20',
-              HEIGHT: '20',
+              WIDTH: '300', // Ancho mayor para que las leyendas se vean mejor
+              HEIGHT: '500', // Altura mayor para capturar todas las reglas
               TRANSPARENT: 'true',
-              LEGEND_OPTIONS: 'fontName:Arial;fontSize:10;fontColor:0x000000;dpi:96;forceLabels:off'
+              LEGEND_OPTIONS: 'fontName:Arial;fontSize:12;fontColor:0x000000;dpi:96;forceLabels:on'
             });
 
             const legendUrl = `/geoserver/gisTPI/wms?${params.toString()}`;
             
-            // Verificar que la imagen se puede cargar
+            // Intentar obtener las reglas del estilo desde GeoServer REST API
+            let ruleLegends = [];
+            try {
+              const [workspace, layerNameOnly] = layer.name.split(':');
+              const layerRestName = `${workspace}__${layerNameOnly}`;
+              
+              // Obtener información de la capa
+              const layerResponse = await fetch(`/geoserver/rest/layers/${layerRestName}.json`, {
+                headers: {
+                  'Authorization': `Basic ${btoa('admin:geoserver')}`,
+                  'Content-Type': 'application/json'
+                }
+              });
+              
+              if (layerResponse.ok) {
+                const layerData = await layerResponse.json();
+                const defaultStyleName = layerData.layer?.defaultStyle?.name;
+                
+                if (defaultStyleName) {
+                  // Obtener el SLD del estilo
+                  const styleResponse = await fetch(`/geoserver/rest/styles/${defaultStyleName}.sld`, {
+                    headers: {
+                      'Authorization': `Basic ${btoa('admin:geoserver')}`,
+                      'Accept': 'application/vnd.ogc.sld+xml'
+                    }
+                  });
+                  
+                  if (styleResponse.ok) {
+                    const sldText = await styleResponse.text();
+                    const parser = new DOMParser();
+                    const sldDoc = parser.parseFromString(sldText, 'text/xml');
+                    
+                    // Buscar todas las reglas en el SLD (sin namespace primero, luego con namespace)
+                    let rules = sldDoc.querySelectorAll('Rule');
+                    if (rules.length === 0) {
+                      // Intentar buscar con diferentes variantes
+                      const allElements = sldDoc.querySelectorAll('*');
+                      rules = Array.from(allElements).filter(el => 
+                        el.localName === 'Rule' || el.tagName === 'Rule'
+                      );
+                    }
+                    
+                    console.log(`Encontradas ${rules.length} reglas en el estilo de ${layer.name}`);
+                    
+                    Array.from(rules).forEach((rule, index) => {
+                      // Obtener nombre de la regla - buscar en diferentes lugares
+                      let ruleName = null;
+                      
+                      // Intentar Name (sin namespace)
+                      const nameEl = rule.querySelector('Name');
+                      if (nameEl && nameEl.textContent) {
+                        ruleName = nameEl.textContent.trim();
+                      }
+                      
+                      // Si no, intentar Title
+                      if (!ruleName) {
+                        const titleEl = rule.querySelector('Title');
+                        if (titleEl && titleEl.textContent) {
+                          ruleName = titleEl.textContent.trim();
+                        }
+                      }
+                      
+                      // Si no, buscar en todos los elementos hijos que puedan tener el nombre
+                      if (!ruleName) {
+                        const allChildren = rule.querySelectorAll('*');
+                        for (const child of allChildren) {
+                          if ((child.localName === 'Name' || child.localName === 'Title') && child.textContent) {
+                            ruleName = child.textContent.trim();
+                            break;
+                          }
+                        }
+                      }
+                      
+                      // Si aún no se encontró, usar un nombre por defecto
+                      if (!ruleName || ruleName === '') {
+                        ruleName = `Categoría ${index + 1}`;
+                      }
+                      
+                      // Obtener color de la regla
+                      let color = '#808080';
+                      
+                      // Buscar Fill
+                      const fillEl = rule.querySelector('Fill');
+                      if (fillEl) {
+                        const cssParam = fillEl.querySelector('CssParameter[name="fill"], SvgParameter[name="fill"]');
+                        if (cssParam && cssParam.textContent) {
+                          color = cssParam.textContent.trim();
+                        }
+                      }
+                      
+                      // Si no se encontró, buscar Stroke
+                      if (color === '#808080') {
+                        const strokeEl = rule.querySelector('Stroke');
+                        if (strokeEl) {
+                          const cssParam = strokeEl.querySelector('CssParameter[name="stroke"], SvgParameter[name="stroke"]');
+                          if (cssParam && cssParam.textContent) {
+                            color = cssParam.textContent.trim();
+                          }
+                        }
+                      }
+                      
+                      // Obtener leyenda individual para esta regla con tamaño MUY grande para legibilidad
+                      // Usar ancho mayor para imágenes más legibles
+                      const ruleParams = new URLSearchParams({
+                        REQUEST: 'GetLegendGraphic',
+                        VERSION: '1.0.0',
+                        FORMAT: 'image/png',
+                        LAYER: layer.name,
+                        RULE: ruleName,
+                        WIDTH: '200',
+                        HEIGHT: '30',
+                        TRANSPARENT: 'true',
+                        LEGEND_OPTIONS: 'fontName:Arial;fontSize:14;fontColor:0x000000;dpi:96;forceLabels:on'
+                      });
+                      
+                      ruleLegends.push({
+                        name: ruleName,
+                        color: color,
+                        url: `/geoserver/gisTPI/wms?${ruleParams.toString()}`
+                      });
+                    });
+                    
+                    console.log(`Reglas extraídas para ${layer.name}:`, ruleLegends.map(r => r.name));
+                  }
+                }
+              }
+            } catch (styleError) {
+              console.log('No se pudo obtener reglas del estilo, usando leyenda completa:', styleError);
+            }
+            
+            // Cargar la leyenda completa (que incluye todas las reglas en una imagen)
             const img = new Image();
-            await new Promise((resolve, reject) => {
+            await new Promise((resolve) => {
               img.onload = () => {
+                // Almacenar la leyenda completa con reglas si están disponibles
                 newLegends[layer.id] = { 
                   type: 'geoserver', 
                   url: legendUrl, 
-                  displayName: layer.displayName 
+                  displayName: layer.displayName,
+                  imageHeight: img.height, // Guardar la altura real de la imagen
+                  ruleLegends: ruleLegends.length > 0 ? ruleLegends : null // Array de reglas individuales
                 };
                 resolve();
               };
@@ -449,26 +584,195 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                     setDragOverIndex(null);
                   }}
                 >
-                  <div className="legend-item-content" onClick={() => setEditingLayer(layer)} title="Clic para editar color y transparencia">
-                    <div className="legend-drag-handle">⋮⋮</div>
-                    {legend.type === 'geoserver' && legend.url ? (
+                  <div className="legend-item-content" style={{ display: 'flex', flexDirection: 'column', width: '100%' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', width: '100%' }}>
+                      <div className="legend-drag-handle">⋮⋮</div>
+                      {legend.type === 'geoserver' && legend.url ? (
                   <>
-                    <div className="legend-symbol-container">
-                      <img
-                        src={legend.url}
-                        alt={`Leyenda de ${legend.displayName}`}
-                        className="legend-image"
-                        style={{ opacity: layer.isUserLayer ? currentOpacity : 1 }}
-                        onError={(e) => {
-                          e.target.style.display = 'none';
-                          e.target.nextSibling.style.display = 'block';
+                    {/* TÍTULO: Solo el nombre de la capa como encabezado, sin sangría */}
+                    <div 
+                      style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        flex: 1, 
+                        cursor: 'pointer',
+                        padding: '4px 0'
+                      }}
+                      onClick={() => {
+                        // Toggle expandir/colapsar esta capa
+                        setExpandedLayers(prev => ({
+                          ...prev,
+                          [layer.id]: !prev[layer.id]
+                        }));
+                      }}
+                      title="Clic para expandir/colapsar todas las clasificaciones"
+                    >
+                      <div className="legend-symbol-container">
+                        {/* Mostrar siempre una vista previa pequeña */}
+                        {!layer.isUserLayer && legend.ruleLegends && legend.ruleLegends.length > 0 ? (
+                          <div style={{ 
+                            width: '16px', 
+                            height: '16px', 
+                            backgroundColor: '#e0e0e0', 
+                            borderRadius: '2px',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontSize: '9px',
+                            color: '#666'
+                          }}>
+                            {legend.ruleLegends.length}
+                          </div>
+                        ) : (
+                          <>
+                            <img
+                              src={legend.url}
+                              alt={`Leyenda de ${legend.displayName}`}
+                              className="legend-image"
+                              style={{ 
+                                opacity: layer.isUserLayer ? currentOpacity : 1,
+                                maxHeight: '20px',
+                                maxWidth: '20px'
+                              }}
+                              onError={(e) => {
+                                e.target.style.display = 'none';
+                                if (e.target.nextSibling) {
+                                  e.target.nextSibling.style.display = 'block';
+                                }
+                              }}
+                            />
+                            <div className="legend-symbol-placeholder" style={{ display: 'none' }}></div>
+                          </>
+                        )}
+                      </div>
+                      <span 
+                        className="legend-label" 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setEditingLayer(layer);
+                        }} 
+                        title="Clic para editar color y transparencia"
+                        style={{ fontWeight: '600' }}
+                      >
+                        {legend.displayName}
+                      </span>
+                      {/* Mostrar ícono de expandir para todas las capas de GeoServer */}
+                      <svg
+                        className={`legend-expand-icon ${expandedLayers[layer.id] ? 'expanded' : ''}`}
+                        width="12"
+                        height="12"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        style={{ 
+                          marginLeft: 'auto', 
+                          flexShrink: 0,
+                          color: '#666',
+                          transition: 'transform 0.2s ease'
                         }}
-                      />
-                      <div className="legend-symbol-placeholder" style={{ display: 'none' }}></div>
+                      >
+                        <path d="M7.41 8.59L12 13.17l4.59-4.58L18 10l-6 6-6-6 1.41-1.41z" fill="currentColor"/>
+                      </svg>
                     </div>
-                    <span className="legend-label">{legend.displayName}</span>
+                    {/* CONTENIDO SCROLLEABLE: Todas las categorías debajo del título, con scroll */}
+                    {expandedLayers[layer.id] && (
+                      <div 
+                        className="legend-expanded-content"
+                        style={{
+                          marginTop: '8px',
+                          marginLeft: '0',
+                          paddingLeft: '28px',
+                          paddingRight: '8px',
+                          paddingTop: '8px',
+                          paddingBottom: '8px',
+                          borderLeft: '2px solid #e0e0e0',
+                          backgroundColor: '#f9f9f9',
+                          width: '100%',
+                          boxSizing: 'border-box',
+                          maxHeight: '400px',
+                          overflowY: 'auto',
+                          overflowX: 'hidden'
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        {legend.ruleLegends && legend.ruleLegends.length > 0 ? (
+                          // Mostrar cada regla como subcategoría con nombre e imagen grande
+                          legend.ruleLegends.map((rule, ruleIndex) => (
+                            <div 
+                              key={ruleIndex}
+                              className="legend-subcategory"
+                              style={{
+                                display: 'flex',
+                                flexDirection: 'row',
+                                alignItems: 'center',
+                                gap: '12px',
+                                padding: '8px 0',
+                                width: '100%',
+                                borderBottom: ruleIndex < legend.ruleLegends.length - 1 ? '1px solid #e8e8e8' : 'none'
+                              }}
+                            >
+                              <img
+                                src={rule.url}
+                                alt={rule.name}
+                                style={{
+                                  width: 'auto',
+                                  maxWidth: '180px',
+                                  minWidth: '150px',
+                                  height: 'auto',
+                                  objectFit: 'contain',
+                                  flexShrink: 0
+                                }}
+                                onError={(e) => {
+                                  // Si falla la imagen, mostrar un símbolo de color más grande
+                                  e.target.style.display = 'none';
+                                  const container = e.target.parentNode;
+                                  const fallback = document.createElement('div');
+                                  fallback.style.width = '40px';
+                                  fallback.style.height = '40px';
+                                  fallback.style.backgroundColor = rule.color;
+                                  fallback.style.borderRadius = '2px';
+                                  fallback.style.border = '1px solid #000';
+                                  container.appendChild(fallback);
+                                }}
+                              />
+                              <span 
+                                className="legend-subcategory-label" 
+                                style={{ 
+                                  color: '#202124', 
+                                  fontSize: '12px',
+                                  lineHeight: '1.5',
+                                  fontWeight: 'normal',
+                                  flex: 1,
+                                  wordWrap: 'break-word'
+                                }}
+                              >
+                                {rule.name}
+                              </span>
+                            </div>
+                          ))
+                        ) : (
+                          // Fallback: mostrar la imagen completa más grande y ancha con scroll vertical
+                          <div style={{ 
+                            width: '100%'
+                          }}>
+                            <img
+                              src={legend.url}
+                              alt={`Leyenda completa de ${legend.displayName}`}
+                              style={{ 
+                                width: '100%',
+                                maxWidth: '100%',
+                                height: 'auto',
+                                display: 'block'
+                              }}
+                              onError={(e) => {
+                                e.target.style.display = 'none';
+                              }}
+                            />
+                          </div>
+                        )}
+                      </div>
+                    )}
                   </>
-                ) : legend.type === 'user' ? (
+                      ) : legend.type === 'user' ? (
                   <>
                     <div className="legend-symbol-container">
                       {(() => {
@@ -522,14 +826,15 @@ export default function ActiveLayersLegend({ layerManager, update }) {
                     </div>
                     <span className="legend-label">{legend.displayName}</span>
                   </>
-                ) : (
+                      ) : (
                   <>
                     <div className="legend-symbol-container">
                       <div className="legend-symbol-placeholder"></div>
                     </div>
                     <span className="legend-label">{legend.displayName}</span>
                   </>
-                )}
+                      )}
+                    </div>
                   </div>
                   {dragOverIndex === index + 1 && draggedLayerId !== layer.id && (
                     <div className="legend-drop-indicator"></div>
