@@ -1,8 +1,9 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import "./Compass.css";
 
 export default function Compass({ map }) {
   const [rotation, setRotation] = useState(0);
+  const prevRotationRef = useRef(0);
 
   useEffect(() => {
     if (!map) return;
@@ -11,7 +12,23 @@ export default function Compass({ map }) {
       const view = map.getView();
       const currentRotation = view.getRotation();
       // Convertir de radianes a grados
-      setRotation((currentRotation * 180) / Math.PI);
+      let degrees = (currentRotation * 180) / Math.PI;
+      
+      // Normalizar el ángulo para evitar saltos cuando pasa de 180/-180
+      // Mantener el ángulo en el rango más cercano al anterior
+      let normalized = degrees;
+      const prev = prevRotationRef.current;
+      
+      // Si la diferencia es mayor a 180, ajustar para tomar el camino más corto
+      while (normalized - prev > 180) {
+        normalized -= 360;
+      }
+      while (normalized - prev < -180) {
+        normalized += 360;
+      }
+      
+      prevRotationRef.current = normalized;
+      setRotation(normalized);
     };
 
     updateRotation();
@@ -38,35 +55,87 @@ export default function Compass({ map }) {
     <div className="compass-container">
       <div 
         className="compass-rose" 
-        style={{ transform: `rotate(${-rotation}deg)` }}
+        style={{ transform: `rotate(${rotation}deg)` }}
         onClick={handleResetNorth}
         title="Hacer clic para orientar al norte"
       >
-        <svg width="44" height="44" viewBox="0 0 80 80">
+        <svg width="44" height="44" viewBox="0 0 44 44">
           {/* Círculo exterior */}
-          <circle cx="40" cy="40" r="38" fill="rgba(255, 255, 255, 0.95)" stroke="#5f6368" strokeWidth="2"/>
+          <circle 
+            cx="22" 
+            cy="22" 
+            r="20" 
+            fill="rgba(255, 255, 255, 0.98)" 
+            stroke="#5f6368" 
+            strokeWidth="1.2"
+          />
           
-          {/* Líneas de dirección principales */}
-          <line x1="40" y1="2" x2="40" y2="12" stroke="#d32f2f" strokeWidth="3" strokeLinecap="round"/>
-          <line x1="40" y1="78" x2="40" y2="68" stroke="#5f6368" strokeWidth="2" strokeLinecap="round"/>
-          <line x1="2" y1="40" x2="12" y2="40" stroke="#5f6368" strokeWidth="2" strokeLinecap="round"/>
-          <line x1="78" y1="40" x2="68" y2="40" stroke="#5f6368" strokeWidth="2" strokeLinecap="round"/>
+          {/* Marcas cardinales (N, S, E, W) - más largas */}
+          {[0, 90, 180, 270].map((angle) => {
+            const rad = (angle * Math.PI) / 180;
+            const x1 = 22 + 20 * Math.sin(rad);
+            const y1 = 22 - 20 * Math.cos(rad);
+            const x2 = 22 + 14 * Math.sin(rad);
+            const y2 = 22 - 14 * Math.cos(rad);
+            
+            return (
+              <line
+                key={`cardinal-${angle}`}
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                stroke="#5f6368"
+                strokeWidth="1.5"
+                strokeLinecap="round"
+              />
+            );
+          })}
           
-          {/* Líneas de dirección secundarias (NE, SE, SW, NW) */}
-          <line x1="28" y1="12" x2="32" y2="16" stroke="#5f6368" strokeWidth="1.5" strokeLinecap="round"/>
-          <line x1="52" y1="12" x2="48" y2="16" stroke="#5f6368" strokeWidth="1.5" strokeLinecap="round"/>
-          <line x1="52" y1="68" x2="48" y2="64" stroke="#5f6368" strokeWidth="1.5" strokeLinecap="round"/>
-          <line x1="28" y1="68" x2="32" y2="64" stroke="#5f6368" strokeWidth="1.5" strokeLinecap="round"/>
+          {/* Marcas intercardinales (NE, SE, SW, NW) - más cortas */}
+          {[45, 135, 225, 315].map((angle) => {
+            const rad = (angle * Math.PI) / 180;
+            const x1 = 22 + 20 * Math.sin(rad);
+            const y1 = 22 - 20 * Math.cos(rad);
+            const x2 = 22 + 16 * Math.sin(rad);
+            const y2 = 22 - 16 * Math.cos(rad);
+            
+            return (
+              <line
+                key={`intercardinal-${angle}`}
+                x1={x1}
+                y1={y1}
+                x2={x2}
+                y2={y2}
+                stroke="#5f6368"
+                strokeWidth="1"
+                strokeLinecap="round"
+              />
+            );
+          })}
           
-          {/* Letra N para el norte */}
-          <text x="40" y="20" textAnchor="middle" fontSize="16" fontWeight="bold" fill="#d32f2f">N</text>
-          
-          {/* Indicador de dirección actual (flecha) */}
+          {/* Aguja del compás - Norte (roja) - más grande y clara */}
           <polygon 
-            points="40,8 35,18 40,15 45,18" 
+            points="22,3 17,18 22,14 27,18" 
             fill="#d32f2f"
-            stroke="#d32f2f"
-            strokeWidth="1"
+            stroke="#b71c1c"
+            strokeWidth="0.3"
+          />
+          
+          {/* Aguja del compás - Sur (gris oscuro) - más grande */}
+          <polygon 
+            points="22,41 17,26 22,30 27,26" 
+            fill="#424242"
+            stroke="#212121"
+            strokeWidth="0.3"
+          />
+          
+          {/* Círculo central - más pequeño para no encimar */}
+          <circle 
+            cx="22" 
+            cy="22" 
+            r="2.5" 
+            fill="#424242"
           />
         </svg>
       </div>
