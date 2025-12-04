@@ -172,6 +172,67 @@ export default class LayerManager {
       this.map.addLayer(layer);
       this.layers[cfg.id] = layer;
     });
+
+    // Escuchar cambios en la vista (incluyendo rotación) para actualizar capas WMS
+    const view = this.map.getView();
+    let lastRotation = view.getRotation();
+    let lastCenter = view.getCenter();
+    let lastZoom = view.getZoom();
+    
+    // Usar un timeout para debounce de actualizaciones
+    this.viewChangeTimeout = null;
+    
+    const handleViewChange = () => {
+      const currentRotation = view.getRotation();
+      const currentCenter = view.getCenter();
+      const currentZoom = view.getZoom();
+      
+      // Solo actualizar si realmente cambió algo importante
+      const rotationChanged = Math.abs(currentRotation - lastRotation) > 0.001;
+      const centerChanged = currentCenter && lastCenter && 
+        (Math.abs(currentCenter[0] - lastCenter[0]) > 0.1 || 
+         Math.abs(currentCenter[1] - lastCenter[1]) > 0.1);
+      const zoomChanged = currentZoom !== lastZoom;
+      
+      if (rotationChanged || centerChanged || zoomChanged) {
+        lastRotation = currentRotation;
+        lastCenter = currentCenter;
+        lastZoom = currentZoom;
+        
+        // Debounce para evitar demasiadas actualizaciones durante animaciones
+        clearTimeout(this.viewChangeTimeout);
+        this.viewChangeTimeout = setTimeout(() => {
+          this.refreshVisibleWMSLayers();
+        }, 150);
+      }
+    };
+    
+    view.on('change:rotation', handleViewChange);
+    view.on('change:center', handleViewChange);
+    view.on('change:resolution', handleViewChange);
+  }
+
+  /**
+   * Refresca todas las capas WMS visibles cuando cambia la vista (rotación, zoom, etc.)
+   */
+  refreshVisibleWMSLayers() {
+    Object.keys(this.layers).forEach((id) => {
+      const layer = this.layers[id];
+      if (layer && layer.getVisible()) {
+        const source = layer.getSource();
+        // Si es una capa ImageWMS, forzar actualización
+        if (source && source instanceof ImageWMS) {
+          try {
+            // Forzar actualización del source
+            source.refresh();
+            // También notificar a la capa que ha cambiado
+            layer.changed();
+          } catch (error) {
+            console.warn(`Error al refrescar capa ${id}:`, error);
+          }
+        }
+      }
+    });
   }
 
   /**

@@ -15,12 +15,14 @@ import Map from "ol/Map";
 import View from "ol/View";
 import { fromLonLat } from "ol/proj";
 import { defaults as defaultControls } from "ol/control";
+import { defaults as defaultInteractions, DragRotate, DragPan } from "ol/interaction";
 
 import BaseMap from "./BaseMap";
 import LayerManager from "../LayerManager";
 import LayerPanel from "../layout/LayerPanel";
 import ZoomControls from "./ZoomControls";
 import ScaleBar from "./ScaleBar";
+import Compass from "./Compass";
 import SearchBar from "../layout/SearchBar";
 import ToolButtons from "../herramientas/ToolButtons";
 import MapTypeControl from "../herramientas/MapTypeControl";
@@ -62,7 +64,108 @@ export default function MapContainer() {
         zoom: false,
         rotate: false,
       }),
+      interactions: defaultInteractions({
+        altShiftDragRotate: false,
+        shiftDragZoom: false,
+      }),
     });
+
+    // Configurar rotación manual con Ctrl + arrastrar usando eventos del DOM con captura
+    let isRotating = false;
+    let startAngle = 0;
+    let startRotation = 0;
+    let centerPixel = null;
+    const mapElement = mapRef.current;
+    
+    const handlePointerDown = (e) => {
+      // Solo activar si Ctrl o Cmd está presionado y es botón izquierdo
+      if ((e.ctrlKey || e.metaKey) && e.button === 0) {
+        isRotating = true;
+        const view = mapObj.getView();
+        const size = mapObj.getSize();
+        if (!size) {
+          isRotating = false;
+          return;
+        }
+        
+        // Centro del mapa en píxeles
+        centerPixel = [size[0] / 2, size[1] / 2];
+        
+        // Obtener posición del puntero relativa al mapa
+        const rect = mapElement.getBoundingClientRect();
+        const pixel = [e.clientX - rect.left, e.clientY - rect.top];
+        
+        // Calcular ángulo inicial
+        startAngle = Math.atan2(
+          pixel[1] - centerPixel[1],
+          pixel[0] - centerPixel[0]
+        );
+        startRotation = view.getRotation();
+        
+        // Prevenir comportamiento por defecto y propagación
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        
+        // Cambiar cursor
+        mapElement.style.cursor = 'grabbing';
+      }
+    };
+    
+    const handlePointerMove = (e) => {
+      if (isRotating) {
+        const view = mapObj.getView();
+        const size = mapObj.getSize();
+        if (!size) return;
+        
+        centerPixel = [size[0] / 2, size[1] / 2];
+        
+        // Obtener posición actual del puntero
+        const rect = mapElement.getBoundingClientRect();
+        const pixel = [e.clientX - rect.left, e.clientY - rect.top];
+        
+        // Calcular ángulo actual
+        const currentAngle = Math.atan2(
+          pixel[1] - centerPixel[1],
+          pixel[0] - centerPixel[0]
+        );
+        
+        // Calcular diferencia de ángulo
+        const deltaAngle = currentAngle - startAngle;
+        
+        // Aplicar rotación
+        view.setRotation(startRotation + deltaAngle);
+        
+        // Prevenir comportamiento por defecto
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+      }
+    };
+    
+    const handlePointerUp = (e) => {
+      if (isRotating) {
+        isRotating = false;
+        mapElement.style.cursor = '';
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+      }
+    };
+    
+    // Agregar listeners con captura (true) para interceptar antes de OpenLayers
+    if (mapElement) {
+      mapElement.addEventListener('pointerdown', handlePointerDown, true);
+      mapElement.addEventListener('pointermove', handlePointerMove, true);
+      mapElement.addEventListener('pointerup', handlePointerUp, true);
+      mapElement.addEventListener('pointercancel', handlePointerUp, true);
+      
+      // También manejar eventos de mouse como fallback
+      mapElement.addEventListener('mousedown', handlePointerDown, true);
+      mapElement.addEventListener('mousemove', handlePointerMove, true);
+      mapElement.addEventListener('mouseup', handlePointerUp, true);
+      mapElement.addEventListener('mouseleave', handlePointerUp, true);
+    }
 
     const manager = new LayerManager(mapObj);
 
@@ -73,7 +176,20 @@ export default function MapContainer() {
     setLayerManager(manager);
     setMap(mapObj);
 
-    return () => mapObj.setTarget(null);
+    return () => {
+      // Limpiar event listeners del DOM
+      if (mapElement) {
+        mapElement.removeEventListener('pointerdown', handlePointerDown, true);
+        mapElement.removeEventListener('pointermove', handlePointerMove, true);
+        mapElement.removeEventListener('pointerup', handlePointerUp, true);
+        mapElement.removeEventListener('pointercancel', handlePointerUp, true);
+        mapElement.removeEventListener('mousedown', handlePointerDown, true);
+        mapElement.removeEventListener('mousemove', handlePointerMove, true);
+        mapElement.removeEventListener('mouseup', handlePointerUp, true);
+        mapElement.removeEventListener('mouseleave', handlePointerUp, true);
+      }
+      mapObj.setTarget(null);
+    };
   }, []);
 
   useEffect(() => {
@@ -111,6 +227,7 @@ export default function MapContainer() {
             />
             <ZoomControls map={map} />
             <ScaleBar map={map} />
+            <Compass map={map} />
             <QueryTool map={map} activeTool={activeTool} layerManager={layerManager} />
             <DrawTool 
               map={map} 
