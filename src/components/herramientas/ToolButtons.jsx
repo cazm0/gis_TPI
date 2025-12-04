@@ -7,6 +7,7 @@ export default function ToolButtons({ activeTool, onChange, toolContent }) {
     { id: "draw", icon: "✏️", label: "Dibujar", title: "Dibujar elemento" },
     { id: "query", icon: "🔍", label: "Consultar", title: "Consultar información" },
     { id: "print", icon: "🖨️", label: "Imprimir", title: "Imprimir mapa" },
+    { id: "waypoints", icon: "📌", label: "Waypoints", title: "Marcadores / Waypoints" },
   ];
 
   const handleToggle = (toolId) => {
@@ -27,7 +28,7 @@ export default function ToolButtons({ activeTool, onChange, toolContent }) {
             <span className="tool-label">{tool.label}</span>
           </button>
           {activeTool === tool.id && toolContent && toolContent[tool.id] && (
-            <div className="tool-button-content">
+            <div className={`tool-button-content ${tool.id === "waypoints" ? "waypoints-content" : ""}`}>
               {toolContent[tool.id]}
             </div>
           )}
