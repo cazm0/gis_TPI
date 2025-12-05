@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<StyledLayerDescriptor xmlns="http://www.opengis.net/sld" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:ogc="http://www.opengis.net/ogc" xmlns:se="http://www.opengis.net/se" xmlns:xlink="http://www.w3.org/1999/xlink" version="1.1.0" xsi:schemaLocation="http://www.opengis.net/sld http://schemas.opengis.net/sld/1.1.0/StyledLayerDescriptor.xsd">
+<StyledLayerDescriptor xmlns="http://www.opengis.net/sld" xmlns:xlink="http://www.w3.org/1999/xlink" xmlns:ogc="http://www.opengis.net/ogc" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xmlns:se="http://www.opengis.net/se" xsi:schemaLocation="http://www.opengis.net/sld http://schemas.opengis.net/sld/1.1.0/StyledLayerDescriptor.xsd" version="1.1.0">
   <NamedLayer>
     <se:Name>Veg_Arborea</se:Name>
     <UserStyle>
@@ -101,11 +101,11 @@
                       <se:SvgParameter name="stroke-width">0.5</se:SvgParameter>
                     </se:Stroke>
                   </se:Mark>
-                  <se:Size>2</se:Size>
+                  <se:Size>3</se:Size>
                 </se:Graphic>
               </se:GraphicFill>
             </se:Fill>
-            <se:VendorOption name="graphic-margin">4.15 8.65</se:VendorOption>
+            <se:VendorOption name="graphic-margin">3.65 3.15</se:VendorOption>
           </se:PolygonSymbolizer>
         </se:Rule>
         <se:Rule>
@@ -133,11 +133,11 @@
                       <se:SvgParameter name="stroke-width">1</se:SvgParameter>
                     </se:Stroke>
                   </se:Mark>
-                  <se:Size>11</se:Size>
+                  <se:Size>4</se:Size>
                 </se:Graphic>
               </se:GraphicFill>
             </se:Fill>
-            <se:VendorOption name="graphic-margin">7.5 16.5</se:VendorOption>
+            <se:VendorOption name="graphic-margin">11 20</se:VendorOption>
           </se:PolygonSymbolizer>
         </se:Rule>
         <se:Rule>
@@ -156,20 +156,20 @@
               <se:GraphicFill>
                 <se:Graphic>
                   <se:Mark>
-                    <se:WellKnownName>circle</se:WellKnownName>
+                    <se:WellKnownName>diamond</se:WellKnownName>
                     <se:Fill>
-                      <se:SvgParameter name="fill">#67d85b</se:SvgParameter>
+                      <se:SvgParameter name="fill">#54b04a</se:SvgParameter>
                     </se:Fill>
                     <se:Stroke>
                       <se:SvgParameter name="stroke">#3d8035</se:SvgParameter>
                       <se:SvgParameter name="stroke-width">1</se:SvgParameter>
                     </se:Stroke>
                   </se:Mark>
-                  <se:Size>14</se:Size>
+                  <se:Size>16</se:Size>
                 </se:Graphic>
               </se:GraphicFill>
             </se:Fill>
-            <se:VendorOption name="graphic-margin">7 16</se:VendorOption>
+            <se:VendorOption name="graphic-margin">11.8 10.8</se:VendorOption>
           </se:PolygonSymbolizer>
         </se:Rule>
       </se:FeatureTypeStyle>
