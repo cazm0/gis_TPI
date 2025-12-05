@@ -127,6 +127,12 @@
   box-shadow: 0 0 0 2px rgba(26, 115, 232, 0.2);
 }
 
+.tool-button-content.waypoints-content {
+  margin-left: 60px;
+  margin-top: -48px;
+  position: relative;
+}
+
 @keyframes slideDown {
   from {
     opacity: 0;
