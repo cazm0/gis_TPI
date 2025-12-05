@@ -15,7 +15,7 @@ import Map from "ol/Map";
 import View from "ol/View";
 import { fromLonLat } from "ol/proj";
 import { defaults as defaultControls } from "ol/control";
-import { defaults as defaultInteractions, DragRotate, DragPan } from "ol/interaction";
+import { defaults as defaultInteractions } from "ol/interaction";
 import { Modify, Select } from "ol/interaction";
 import VectorSource from "ol/source/Vector";
 import VectorLayer from "ol/layer/Vector";

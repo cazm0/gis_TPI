@@ -1,3 +1,16 @@
+/**
+ * MapTools - Herramientas de mapa (versión alternativa/legacy de medición)
+ * 
+ * Componente que proporciona funcionalidad de medición de distancias:
+ * - Permite dibujar líneas en el mapa para medir distancias
+ * - Muestra tooltips con la distancia en tiempo real
+ * - Calcula distancias en metros o kilómetros según corresponda
+ * - Permite eliminar mediciones individuales
+ * 
+ * Nota: Este componente parece ser una versión alternativa o legacy.
+ * La funcionalidad principal de medición está en MeasureTool.jsx
+ */
+
 import { useEffect, useRef } from "react";
 import VectorSource from "ol/source/Vector";
 import VectorLayer from "ol/layer/Vector";
@@ -8,6 +21,11 @@ import { Style, Stroke, Fill, Circle as CircleStyle } from "ol/style";
 import { unByKey } from "ol/Observable";
 import "./MapTools.css";
 
+/**
+ * Componente MapTools
+ * @param {ol.Map} map - Instancia del mapa de OpenLayers
+ * @param {string} activeTool - Herramienta actualmente activa (debe ser "measure" para activarse)
+ */
 export default function MapTools({ map, activeTool }) {
   const measureLayerRef = useRef(null);
   const drawRef = useRef(null);

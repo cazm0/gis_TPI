@@ -1,6 +1,22 @@
+/**
+ * Compass - Brújula/rosa de los vientos para mostrar la orientación del mapa
+ * 
+ * Muestra la rotación actual del mapa y permite:
+ * - Visualizar la orientación del mapa con una rosa de los vientos
+ * - Rotar automáticamente según la rotación del mapa
+ * - Hacer clic para reorientar el mapa al norte (rotación 0)
+ * 
+ * La rosa muestra direcciones cardinales (N, S, E, W) e intercardinales
+ * y se actualiza en tiempo real cuando el usuario rota el mapa
+ */
+
 import React, { useState, useEffect, useRef } from "react";
 import "./Compass.css";
 
+/**
+ * Componente Compass
+ * @param {ol.Map} map - Instancia del mapa de OpenLayers
+ */
 export default function Compass({ map }) {
   const [rotation, setRotation] = useState(0);
   const prevRotationRef = useRef(0);
